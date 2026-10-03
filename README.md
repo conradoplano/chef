@@ -84,7 +84,7 @@ environment variables in the NAS project and never in git.
    missing bind-mount folders).
 3. Container Manager → Project → Create: name `chef`, path `/docker/chef`, source
    "Create docker-compose.yml", paste `deploy/docker-compose.nas.yml` and fill in the values.
-4. DSM reverse proxy: `https://chef.bayley-plano.com:443` → `http://localhost:5061`, custom header
+4. DSM reverse proxy: `https://chef.example.com:443` → `http://localhost:5061`, custom header
    `X-Forwarded-Proto: https`, Let's Encrypt certificate assigned.
 5. Updates: push to `main`, wait for the GitHub Action, then in Container Manager → Project → chef:
    Stop → Build → Start. `pull_policy: always` in the compose file makes this fetch the new `latest`.
