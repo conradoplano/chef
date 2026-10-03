@@ -172,6 +172,17 @@ class FamilyTests(TestCase):
         self.assertContains(page, "6 / 10")
         self.assertContains(page, "Olive oil<br>Rice")
 
+    def test_household_form_leaves_usual_week_alone(self):
+        household = Household.load()
+        household.usual_week = {"0": {"dinner": {"on": True, "eaters": []}}}
+        household.save()
+        response = self.client.get(reverse("meals:household"))
+        self.assertNotContains(response, "usual_week")
+        self.client.post(reverse("meals:household"), {"weekday_minutes": "25", "priority": "balanced"})
+        household.refresh_from_db()
+        self.assertEqual(household.weekday_minutes, 25)
+        self.assertEqual(household.usual_week, {"0": {"dinner": {"on": True, "eaters": []}}})
+
     def test_adventurousness_out_of_range(self):
         response = self.client.post(reverse("meals:household"), {"adventurousness": "11", "priority": "balanced"})
         self.assertContains(response, "from 1 to 10")

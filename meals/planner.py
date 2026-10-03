@@ -173,17 +173,14 @@ def build_prompt(request):
     settings_lines = [
         (label, value)
         for label, value in [
-            ("Meals we plan", household.meals_to_plan),
             ("Max cooking time on weekdays", household.weekday_minutes and f"{household.weekday_minutes} min"),
             ("Max cooking time at the weekend", household.weekend_minutes and f"{household.weekend_minutes} min"),
             ("Adventurousness", household.adventurousness and f"{household.adventurousness}/10"),
-            ("Leftovers", household.leftovers),
             ("Favourite cuisines", household.cuisines),
             ("Cooking equipment", household.equipment),
             ("Where we shop", household.shops),
             ("Optimise the shopping for", household.get_priority_display()),
             ("Pantry staples we usually have", household.pantry),
-            ("Anything else", household.notes),
         ]
         if value
     ]

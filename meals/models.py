@@ -169,7 +169,8 @@ class Rule(models.Model):
 
 
 class Household(models.Model):
-    """How we cook and shop. A single row, edited on the family page."""
+    """How we cook and shop. A single row, edited on the family page.
+    Free-text preferences are rules; which meals and who eats is the usual week."""
 
     class Priority(models.TextChoices):
         BALANCED = "balanced", "Balanced"
@@ -178,21 +179,16 @@ class Household(models.Model):
         QUALITY = "quality", "Quality"
         WASTE = "waste", "Less waste"
 
-    meals_to_plan = models.TextField(
-        blank=True, help_text="E.g. dinners Mon–Fri, lunch and dinner at the weekend."
-    )
     weekday_minutes = models.PositiveSmallIntegerField("max. cooking time on weekdays (min)", null=True, blank=True)
     weekend_minutes = models.PositiveSmallIntegerField("max. cooking time at the weekend (min)", null=True, blank=True)
     adventurousness = models.PositiveSmallIntegerField(
         "how adventurous (1–10)", null=True, blank=True, help_text="1 = only familiar meals, 10 = try anything."
     )
-    leftovers = models.TextField("leftovers", blank=True, help_text="E.g. welcome for weekend lunches.")
     cuisines = models.TextField("favourite cuisines", blank=True)
     equipment = models.TextField("cooking equipment", blank=True)
     shops = models.TextField("where we shop", blank=True)
     priority = models.CharField("optimise for", max_length=12, choices=Priority.choices, default=Priority.BALANCED)
     pantry = models.TextField("pantry staples", blank=True, help_text="Things we always have; left off the shopping list.")
-    notes = models.TextField("anything else", blank=True)
     # Which meals we usually need and who eats them, by weekday ("0" = Monday):
     # {"0": {"lunch": {"on": false, "eaters": [ids]}, "dinner": {...}}, ...}. See meals.schedule.
     usual_week = models.JSONField(default=dict, blank=True)

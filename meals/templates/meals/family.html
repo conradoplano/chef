@@ -50,7 +50,7 @@
           <a href="{% url 'meals:rule' r.pk %}">{{ r.text }}</a>
         </li>
       {% empty %}
-        <li class="muted">No rules yet, e.g. "Fish twice a week" or "Pizza on Sunday".</li>
+        <li class="muted">No rules yet, e.g. "Fish twice a week", "Pizza on Sunday" or "Leftovers are welcome for weekend lunches".</li>
       {% endfor %}
     </ul>
     <form method="post" class="add-rule">
@@ -74,7 +74,7 @@
         {% endfor %}
       </table>
     {% else %}
-      <p class="muted">How we cook and shop: cooking times, cuisines, equipment, shops and pantry staples.</p>
+      <p class="muted">How we cook and shop: cooking times, how adventurous, cuisines, equipment, shops and pantry staples.</p>
     {% endif %}
   </section>
 {% endblock %}

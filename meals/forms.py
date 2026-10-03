@@ -70,8 +70,8 @@ class RuleForm(forms.ModelForm):
 class HouseholdForm(forms.ModelForm):
     class Meta:
         model = Household
-        exclude = []
-        widgets = small_textareas(["meals_to_plan", "leftovers", "cuisines", "equipment", "shops", "notes"])
+        exclude = ["usual_week"]  # edited on its own page
+        widgets = small_textareas(["cuisines", "equipment", "shops"])
         widgets["pantry"] = forms.Textarea(attrs={"rows": 4})
 
     def clean_adventurousness(self):

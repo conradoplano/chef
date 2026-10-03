@@ -337,17 +337,14 @@ def family(request):
             "household_rows": [
                 (household._meta.get_field(name).verbose_name, value)
                 for name, value in [
-                    ("meals_to_plan", household.meals_to_plan),
                     ("weekday_minutes", household.weekday_minutes and f"{household.weekday_minutes} min"),
                     ("weekend_minutes", household.weekend_minutes and f"{household.weekend_minutes} min"),
                     ("adventurousness", household.adventurousness and f"{household.adventurousness} / 10"),
-                    ("leftovers", household.leftovers),
                     ("cuisines", household.cuisines),
                     ("equipment", household.equipment),
                     ("shops", household.shops),
                     ("priority", household.get_priority_display()),
                     ("pantry", household.pantry),
-                    ("notes", household.notes),
                 ]
                 if value
             ],
