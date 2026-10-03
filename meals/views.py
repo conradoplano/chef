@@ -47,10 +47,30 @@ def week_start(day):
     return day - timedelta(days=day.weekday())
 
 
-def week_context(day):
-    """Monday-based week around `day`, with links to the neighbouring weeks."""
+WEEK_SESSION_KEY = "selected_week"
+
+
+def selected_week(request, day):
+    """The week to show. A week opened explicitly (?day in the URL) is remembered for this browser
+    for the rest of the day, so Menu and Shopping stay on it; otherwise the current week."""
     today = timezone.localdate()
-    start = week_start(parse_date(day) if day else today)
+    if day:
+        start = week_start(parse_date(day))
+        request.session[WEEK_SESSION_KEY] = {"start": start.isoformat(), "on": today.isoformat()}
+        return start
+    saved = request.session.get(WEEK_SESSION_KEY) or {}
+    if saved.get("on") == today.isoformat():
+        try:
+            return date.fromisoformat(saved["start"])
+        except (KeyError, ValueError):
+            pass
+    return week_start(today)
+
+
+def week_context(request, day):
+    """Monday-based week to show, with links to the neighbouring weeks."""
+    today = timezone.localdate()
+    start = selected_week(request, day)
     return {
         "start": start,
         "end": start + timedelta(days=6),
@@ -120,7 +140,7 @@ def home(request):
 
 @login_required
 def menu(request, day=None):
-    context = week_context(day)
+    context = week_context(request, day)
     start, end = context["start"], context["end"]
     context["days"] = days_with_meals(start, end, context["today"])
     context["meal_count"] = sum(len(d["meals"]) for d in context["days"])
@@ -227,7 +247,7 @@ def ingredients(request, pk):
 
 @login_required
 def shopping(request, day=None):
-    context = week_context(day)
+    context = week_context(request, day)
     sections, at_home, missing = shopping_list.build(context["start"])
     items = [*at_home, *(i for s in sections for i in s.items)]
     context.update(

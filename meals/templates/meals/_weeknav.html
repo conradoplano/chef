@@ -2,7 +2,7 @@
   <a class="btn ghost" href="{% url url_of prev.isoformat %}" aria-label="Previous week">‹</a>
   <div class="center">
     <strong>{{ start|date:"j M" }} – {{ end|date:"j M Y" }}</strong>
-    {% if start != this_week %}<div><a class="small" href="{% url url_this %}">Back to this week</a></div>{% endif %}
+    {% if start != this_week %}<div><a class="small" href="{% url url_of this_week.isoformat %}">Back to this week</a></div>{% endif %}
   </div>
   <a class="btn ghost" href="{% url url_of next.isoformat %}" aria-label="Next week">›</a>
 </div>

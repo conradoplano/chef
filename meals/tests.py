@@ -613,3 +613,39 @@ class HomeRestOfWeekTests(TestCase):
         self.assertEqual(response.context["rest_of_week"], [])
         self.assertNotContains(response, "Rest of the week")
         self.assertContains(response, reverse("meals:menu_of", args=["2026-10-05"]))
+
+
+class SelectedWeekTests(TestCase):
+    """The week chosen on Menu or Shopping is kept while moving around the app."""
+
+    def setUp(self):
+        self.client.force_login(User.objects.create_user(email="parent@example.com"))
+
+    def _get(self, name, *args, today=date(2026, 10, 3)):
+        with mock.patch("django.utils.timezone.localdate", return_value=today):
+            return self.client.get(reverse(name, args=args))
+
+    def test_menu_week_is_kept_for_shopping_and_back(self):
+        self._get("meals:menu_of", "2026-10-14")
+        response = self._get("meals:shopping")
+        self.assertEqual(response.context["start"], date(2026, 10, 12))
+        self._get("meals:family")
+        self.assertEqual(self._get("meals:menu").context["start"], date(2026, 10, 12))
+
+    def test_shopping_week_is_kept_for_menu(self):
+        self._get("meals:shopping_of", "2026-09-21")
+        self.assertEqual(self._get("meals:menu").context["start"], date(2026, 9, 21))
+
+    def test_back_to_this_week(self):
+        response = self._get("meals:menu_of", "2026-10-14")
+        self.assertContains(response, f'href="{reverse("meals:menu_of", args=["2026-09-28"])}">Back to this week')
+        self._get("meals:menu_of", "2026-09-28")
+        self.assertEqual(self._get("meals:shopping").context["start"], date(2026, 9, 28))
+
+    def test_forgotten_the_next_day(self):
+        self._get("meals:menu_of", "2026-10-14")
+        response = self._get("meals:shopping", today=date(2026, 10, 4))
+        self.assertEqual(response.context["start"], date(2026, 9, 28))
+
+    def test_without_a_selection_shows_the_current_week(self):
+        self.assertEqual(self._get("meals:menu").context["start"], date(2026, 9, 28))

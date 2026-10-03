@@ -3,7 +3,7 @@
 {% block title %}Shopping · {{ site_name }}{% endblock %}
 
 {% block content %}
-  {% include "meals/_weeknav.html" with url_of="meals:shopping_of" url_this="meals:shopping" %}
+  {% include "meals/_weeknav.html" with url_of="meals:shopping_of" %}
 
   <div id="shopping" data-state-url="{% url 'meals:shopping_state' start.isoformat %}" data-signature="{{ signature }}">
     {% if total %}

@@ -3,7 +3,7 @@
 {% block title %}Menu · {{ site_name }}{% endblock %}
 
 {% block content %}
-  {% include "meals/_weeknav.html" with url_of="meals:menu_of" url_this="meals:menu" %}
+  {% include "meals/_weeknav.html" with url_of="meals:menu_of" %}
 
   {% if menu_request and not menu_request.finished %}
     <a class="flash planning-bar" href="{% url 'meals:menu_request' menu_request.pk %}">🍳 Creating the menu for this week… <strong>See progress</strong></a>
