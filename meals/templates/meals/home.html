@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}{{ site_name }}{% endblock %}
+
+{% block content %}
+  <div class="home-head">
+    <div>
+      <h2>{{ greeting }}{% if user.name %}, {{ user.get_short_name }}{% endif %}</h2>
+      <p class="muted">Today is {{ today|date:"l, j F" }}</p>
+    </div>
+  </div>
+
+  <section class="day-group today">
+    <header class="day-head">
+      <h3>Today's menu</h3>
+      <a class="btn ghost small" href="{% url 'meals:meal_new' %}?date={{ today.isoformat }}&amp;next={% url 'meals:home' %}"
+         aria-label="Add a meal today">+ Add</a>
+    </header>
+    {% for m in meals %}
+      {% include "meals/_meal_card.html" with return_to=request.path %}
+    {% empty %}
+      <div class="card center empty-today">
+        <div class="big">🍳</div>
+        <p class="muted">Nothing planned for today.</p>
+      </div>
+    {% endfor %}
+  </section>
+
+  {% if rest_of_week %}
+    <h3 class="section-title">Rest of the week</h3>
+    {% for d in rest_of_week %}
+      {% include "meals/_day_group.html" with return_to=request.path %}
+    {% endfor %}
+    <p class="center"><a href="{% url 'meals:menu' %}">Open the week menu →</a></p>
+  {% else %}
+    <p class="center"><a href="{% url 'meals:menu_of' next_week.isoformat %}">See next week's menu →</a></p>
+  {% endif %}
+{% endblock %}

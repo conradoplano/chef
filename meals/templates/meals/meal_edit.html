@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}{% if meal %}Edit meal{% else %}Add meal{% endif %} · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <h2>{% if meal %}Edit meal{% else %}Add a meal{% endif %}</h2>
+  <form method="post" class="card stack">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <div class="row">
+      <div class="field">{{ form.date.label_tag }}{{ form.date }}{{ form.date.errors }}</div>
+      <div class="field">{{ form.slot.label_tag }}{{ form.slot }}{{ form.slot.errors }}</div>
+    </div>
+    <div class="field">
+      {{ form.dish_name.label_tag }}{{ form.dish_name }}{{ form.dish_name.errors }}
+      <datalist id="dishes">{% for name in dishes %}<option value="{{ name }}">{% endfor %}</datalist>
+      <p class="muted small">Pick one we had before or type a new one.</p>
+    </div>
+    <div class="row">
+      <div class="field">{{ form.kind.label_tag }}{{ form.kind }}{{ form.kind.errors }}</div>
+      <div class="field">{{ form.minutes.label_tag }}{{ form.minutes }}{{ form.minutes.errors }}</div>
+    </div>
+    <div class="field">{{ form.recipe_url.label_tag }}{{ form.recipe_url }}{{ form.recipe_url.errors }}</div>
+    <label class="check">{{ form.leftovers }} Leftovers – nothing to buy</label>
+    <div class="field">{{ form.note.label_tag }}{{ form.note }}{{ form.note.errors }}</div>
+    {% if form.eaters.field.queryset.exists %}
+      <div class="field chips">{{ form.eaters.label_tag }}{{ form.eaters }}{{ form.eaters.errors }}</div>
+    {% endif %}
+    <div class="field">{{ form.servings.label_tag }}{{ form.servings }}
+      <p class="muted small">{{ form.servings.help_text }}</p>{{ form.servings.errors }}</div>
+    <button class="wide" type="submit">Save</button>
+  </form>
+  {% if meal %}
+    <a class="card line plain ingredients-link" href="{% url 'meals:ingredients' meal.dish.pk %}?next={{ request.get_full_path|urlencode }}">
+      <span><strong>Ingredients</strong>
+        <span class="muted small">{% with n=meal.dish.ingredients.count %}{% if n %}{{ n }} for {{ meal.dish.name }}{% else %}none yet – needed for the shopping list{% endif %}{% endwith %}</span></span>
+      <span aria-hidden="true">›</span>
+    </a>
+    <form method="post" class="center">
+      {% csrf_token %}
+      <button type="submit" name="delete" value="1" class="danger">Remove from menu</button>
+    </form>
+  {% endif %}
+{% endblock %}

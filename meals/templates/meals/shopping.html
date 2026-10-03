@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}Shopping · {{ site_name }}{% endblock %}
+
+{% block content %}
+  {% include "meals/_weeknav.html" with url_of="meals:shopping_of" url_this="meals:shopping" %}
+
+  <div id="shopping" data-state-url="{% url 'meals:shopping_state' start.isoformat %}" data-signature="{{ signature }}">
+    {% if total %}
+      <div class="progress-row">
+        <span class="small"><strong id="bought-count">{{ bought }}</strong> of {{ total }} bought</span>
+        <span class="view-toggles">
+          <button type="button" class="link small" id="hide-uses" aria-pressed="false">Hide meals</button>
+          <button type="button" class="link small" id="hide-bought" aria-pressed="false">Hide bought</button>
+        </span>
+      </div>
+      <div class="progress"><span id="progress-bar" style="width: {% widthratio bought total 100 %}%"></span></div>
+    {% endif %}
+
+    {% if removed %}
+      <div class="flash undo-bar">
+        <span>Removed <strong>{{ removed.name }}</strong>.</span>
+        <form method="post" action="{% url 'meals:extra_restore' removed.pk %}" class="inline">
+          {% csrf_token %}<button type="submit" class="btn ghost small">Undo</button>
+        </form>
+      </div>
+    {% endif %}
+
+    {% if missing %}
+      <div class="flash missing">
+        <strong>No ingredients yet</strong> for
+        {% for m in missing %}
+          <a href="{% url 'meals:ingredients' m.dish.pk %}?next={{ request.path|urlencode }}">{{ m.date|date:"D" }} · {{ m.dish.name }}</a>{% if not forloop.last %}, {% endif %}
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% for section in sections %}
+      <section class="card shop-section">
+        <h3>{{ section.label }}</h3>
+        <ul class="shop-items">
+          {% for item in section.items %}{% include "meals/_shop_item.html" %}{% endfor %}
+        </ul>
+      </section>
+    {% empty %}
+      {% if not at_home %}
+        <div class="card center empty-today">
+          <div class="big">🛒</div>
+          <p class="muted">Nothing on the list for this week yet. Plan meals on the <a href="{% url 'meals:menu_of' start.isoformat %}">menu</a> or add an item below.</p>
+        </div>
+      {% endif %}
+    {% endfor %}
+
+    {% if at_home %}
+      <section class="card shop-section at-home">
+        <h3>🏠 Check at home</h3>
+        <p class="muted small">Pantry staples – usually at home. Tick them if you have them or buy them.</p>
+        <ul class="shop-items">
+          {% for item in at_home %}{% include "meals/_shop_item.html" %}{% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+  </div>
+
+  <details class="card add-extra"{% if not total %} open{% endif %}>
+    <summary>+ Add an item</summary>
+    <p class="muted small">For things that aren't for a planned meal, like milk, bread, fruit or snacks.</p>
+    <form method="post" action="{% url 'meals:extra_add' start.isoformat %}" class="stack">
+      {% csrf_token %}
+      <div class="row">
+        <div class="field">{{ extra_form.name.label_tag }}{{ extra_form.name }}</div>
+        <div class="field">{{ extra_form.quantity.label_tag }}{{ extra_form.quantity }}</div>
+      </div>
+      <div class="row">
+        <div class="field">{{ extra_form.category.label_tag }}{{ extra_form.category }}</div>
+        <div class="field">{{ extra_form.note.label_tag }}{{ extra_form.note }}</div>
+      </div>
+      <button type="submit">Add to list</button>
+    </form>
+  </details>
+
+  <script>
+  (() => {
+    const root = document.getElementById('shopping');
+    const stateUrl = root.dataset.stateUrl;
+    let signature = root.dataset.signature;
+    let pending = 0;
+
+    function render(state) {
+      let bought = 0;
+      const items = root.querySelectorAll('.shop-item');
+      items.forEach((li) => {
+        const by = state.checked[li.dataset.key];
+        const checked = by !== undefined;
+        if (checked) bought++;
+        li.classList.toggle('checked', checked);
+        li.querySelector('.item-main').setAttribute('aria-pressed', checked);
+        li.querySelector('input[name=checked]').value = checked ? '0' : '1';
+        li.querySelector('.by').textContent = checked && by ? '✓ ' + by : '';
+      });
+      const count = document.getElementById('bought-count');
+      if (count) count.textContent = bought;
+      const bar = document.getElementById('progress-bar');
+      if (bar && items.length) bar.style.width = (100 * bought / items.length) + '%';
+      // The menu changed on another device: items were added or removed.
+      if (state.signature !== signature && !pending) location.reload();
+    }
+
+    root.addEventListener('submit', async (event) => {
+      const form = event.target.closest('.toggle-form');
+      if (!form) return;
+      event.preventDefault();
+      const li = form.closest('.shop-item');
+      const wanted = form.querySelector('input[name=checked]').value === '1';
+      li.classList.toggle('checked', wanted);  // feels instant; the server's answer confirms it
+      pending++;
+      try {
+        const response = await fetch(form.action, {
+          method: 'POST', body: new FormData(form), headers: { 'X-Requested-With': 'fetch' },
+        });
+        pending--;
+        if (response.ok) render(await response.json());
+      } catch (e) {
+        pending--;
+        li.classList.toggle('checked', !wanted);
+      }
+    });
+
+    async function poll() {
+      if (document.visibilityState !== 'visible' || pending) return;
+      try {
+        const response = await fetch(stateUrl, { headers: { 'X-Requested-With': 'fetch' } });
+        if (response.ok) render(await response.json());
+      } catch (e) { /* offline for a moment; try again next time */ }
+    }
+    setInterval(poll, 5000);
+    document.addEventListener('visibilitychange', poll);
+
+    // View switches, remembered per device.
+    function viewToggle(id, cls, labels) {
+      const button = document.getElementById(id);
+      if (!button) return;
+      const apply = (on) => {
+        root.classList.toggle(cls, on);
+        button.setAttribute('aria-pressed', on);
+        button.textContent = labels[on ? 1 : 0];
+      };
+      try { apply(localStorage.getItem('chef-' + cls) === '1'); } catch (e) {}
+      button.addEventListener('click', () => {
+        const on = !root.classList.contains(cls);
+        apply(on);
+        try { localStorage.setItem('chef-' + cls, on ? '1' : '0'); } catch (e) {}
+      });
+    }
+    viewToggle('hide-bought', 'hide-bought', ['Hide bought', 'Show bought']);
+    viewToggle('hide-uses', 'hide-uses', ['Hide meals', 'Show meals']);
+  })();
+  </script>
+{% endblock %}

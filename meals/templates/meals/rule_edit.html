@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Edit rule · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <h2>Edit rule</h2>
+  <form method="post" class="card stack">
+    {% csrf_token %}
+    {% include "meals/_fields.html" %}
+    <button class="wide" type="submit">Save</button>
+  </form>
+  <form method="post" class="center">
+    {% csrf_token %}
+    <button type="submit" name="delete" value="1" class="danger">Delete rule</button>
+  </form>
+{% endblock %}

@@ -1,0 +1,78 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}{{ site_name }}{% endblock %}</title>
+  <link rel="manifest" href="{% url 'core:manifest' %}">
+  <meta name="theme-color" content="#b5452b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="{{ site_name }}">
+  <link rel="apple-touch-icon" href="{% static 'icons/icon-180.png' %}">
+  <link rel="icon" href="{% static 'icons/icon-192.png' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body class="{% if user.is_authenticated %}has-tabs{% endif %}">
+  <header class="topbar">
+    <div class="wrap">
+      <a href="{% url 'meals:home' %}" class="brand"><img src="{% static 'icons/icon-180.png' %}" alt="">{{ site_name }}</a>
+      {% if user.is_authenticated %}
+        <div class="who">
+          {% if user.is_staff %}<a href="{% url 'admin:index' %}">Admin</a>{% endif %}
+          <form method="post" action="{% url 'accounts:logout' %}" class="inline">
+            {% csrf_token %}<button type="submit" class="link">Log out</button>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+  </header>
+
+  <main class="wrap">
+    {% for message in messages %}
+      <div class="flash {{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+
+  {% if user.is_authenticated %}
+    {% with name=request.resolver_match.url_name %}
+    <nav class="tabs">
+      <a href="{% url 'meals:home' %}" class="{% if name == 'home' %}on{% endif %}">
+        <span class="ic">⌂</span>Home</a>
+      <a href="{% url 'meals:menu' %}" class="{% if name == 'menu' or name == 'menu_of' or name == 'meal' or name == 'meal_new' or name == 'feedback' %}on{% endif %}">
+        <span class="ic">🍽</span>Menu</a>
+      <a href="{% url 'meals:shopping' %}" class="{% if name == 'shopping' or name == 'shopping_of' %}on{% endif %}">
+        <span class="ic">🛒</span>Shopping</a>
+      <a href="{% url 'meals:family' %}" class="{% if name == 'family' or name == 'member' or name == 'member_new' or name == 'rule' or name == 'household' %}on{% endif %}">
+        <span class="ic">👪</span>Family</a>
+    </nav>
+    {% endwith %}
+  {% endif %}
+
+  <script>
+    // One-tap feedback on meal cards: saved in the background, no page reload.
+    document.addEventListener('submit', async (event) => {
+      const form = event.target.closest('.quick-feedback');
+      if (!form) return;
+      event.preventDefault();
+      const button = event.submitter;
+      const data = new FormData(form);
+      data.set('rating', button.value);
+      try {
+        const response = await fetch(form.action, { method: 'POST', body: data, headers: { 'X-Requested-With': 'fetch' } });
+        if (!response.ok) throw new Error(response.status);
+        const { rating } = await response.json();
+        form.querySelectorAll('.qf').forEach((b) => b.setAttribute('aria-pressed', b.value === rating));
+        form.parentElement.querySelector('.split')?.remove();
+      } catch (e) {
+        // Fall back to a normal form post (which reloads the page).
+        const input = Object.assign(document.createElement('input'), { type: 'hidden', name: 'rating', value: button.value });
+        form.append(input);
+        form.submit();
+      }
+    });
+    if ('serviceWorker' in navigator) { navigator.serviceWorker.register('{% url "core:sw" %}'); }
+  </script>
+</body>
+</html>

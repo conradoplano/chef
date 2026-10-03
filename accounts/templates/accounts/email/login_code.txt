@@ -1,0 +1,7 @@
+Hi {{ user.get_short_name }},
+
+Your {{ site_name|default:"Chef" }} login code is:
+
+    {{ code }}
+
+It is valid for {{ minutes }} minutes. If you didn't request it, you can ignore this email.

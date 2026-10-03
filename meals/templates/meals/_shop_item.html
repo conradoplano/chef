@@ -1,0 +1,34 @@
+{# One shopping list line. Tapping the top part marks it bought; the meal chips link to the recipes. #}
+<li class="shop-item{% if item.checked %} checked{% endif %}" data-key="{{ item.key }}">
+  <form method="post" action="{% url 'meals:shopping_toggle' start.isoformat %}" class="toggle-form">
+    {% csrf_token %}
+    <input type="hidden" name="key" value="{{ item.key }}">
+    <input type="hidden" name="checked" value="{% if item.checked %}0{% else %}1{% endif %}">
+    <button type="submit" class="item-main" aria-pressed="{{ item.checked|yesno:'true,false' }}">
+      <span class="check" aria-hidden="true"></span>
+      <span class="item-body">
+        <span class="item-name">{{ item.name }}</span>
+        {% if item.quantity %}<span class="qty">{{ item.quantity }}</span>{% endif %}
+        {% if item.notes %}<span class="item-note">{{ item.notes|join:"; " }}</span>{% endif %}
+      </span>
+      <span class="by small">{% if item.checked and item.checked_by %}✓ {{ item.checked_by }}{% endif %}</span>
+    </button>
+  </form>
+  {% if item.uses or item.extra %}
+    <div class="uses">
+      {% for use in item.uses %}
+        {% if use.meal.dish.recipe_url %}
+          <a class="badge use" href="{{ use.meal.dish.recipe_url }}" target="_blank" rel="noopener" title="{{ use.label }}"><span class="use-name">{{ use.label }}</span> ↗</a>
+        {% else %}
+          <span class="badge use" title="{{ use.label }}"><span class="use-name">{{ use.label }}</span></span>
+        {% endif %}
+      {% endfor %}
+      {% if item.extra %}
+        <span class="badge use extra-badge">Extra</span>
+        <form method="post" action="{% url 'meals:extra_delete' item.extra.pk %}" class="inline">
+          {% csrf_token %}<button type="submit" class="link small danger" aria-label="Remove {{ item.name }}">Remove</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endif %}
+</li>

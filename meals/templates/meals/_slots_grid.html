@@ -1,0 +1,18 @@
+{# Days x meals, with who eats. Expects `rows` from meals.schedule.rows. #}
+{% for row in rows %}
+  <fieldset class="card day-slots">
+    <legend>{{ row.label }}</legend>
+    {% for s in row.slots %}
+      <div class="slot-row">
+        <label class="slot-on"><input type="checkbox" name="{{ row.key }}-{{ s.slot }}-on"{% if s.on %} checked{% endif %}> {{ s.label }}</label>
+        {% if s.members %}
+          <div class="eaters" role="group" aria-label="Who eats {{ s.label|lower }} on {{ row.label }}">
+            {% for e in s.members %}
+              <label class="chip"><input type="checkbox" name="{{ row.key }}-{{ s.slot }}-eaters" value="{{ e.member.pk }}"{% if e.eats %} checked{% endif %}><span>{{ e.member.name }}</span></label>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </fieldset>
+{% endfor %}

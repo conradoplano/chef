@@ -1,0 +1,13 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.env
+data
+staticfiles
+.vscode
+.idea
+data-local
+dist
+data-local.nani-backup

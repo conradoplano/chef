@@ -1,0 +1,53 @@
+{# One planned meal. Expects `m` (from planned_meals) and optionally `return_to` (URL to come back to). #}
+<article id="meal-{{ m.pk }}" class="meal-card slot-{{ m.slot }}{% if m.leftovers %} leftovers{% endif %}">
+  {% with recipe=m.dish.recipe_url %}
+  <div class="meal-main">
+    <div class="meal-head">
+      <span class="slot-label">{{ m.get_slot_display }}</span>
+      <a class="icon-btn" href="{% url 'meals:meal' m.pk %}{% if return_to %}?next={{ return_to|urlencode }}{% endif %}" aria-label="Change this meal" title="Change this meal">✎</a>
+    </div>
+    <div class="meal-title">
+      {% if recipe %}
+        {# Stretched link: its ::after covers the whole top part of the card. #}
+        <a class="meal-link" href="{{ recipe }}" target="_blank" rel="noopener">{% include "meals/_meal_name.html" %}</a>
+      {% else %}
+        {% include "meals/_meal_name.html" %}
+      {% endif %}
+    </div>
+    <div class="meta small">
+      {% if m.leftovers %}
+        <span>♻ Leftovers – no cooking needed</span>
+      {% elif m.dish.minutes %}
+        <span>⏱ {{ m.dish.minutes }} min</span>
+      {% endif %}
+      {% if m.servings and not m.leftovers %}
+        <span title="Portions to cook">👥 {{ m.servings }}</span>
+      {% endif %}
+      {% if recipe %}<span class="badge source">{{ m.dish.recipe_source }} ↗</span>{% endif %}
+    </div>
+    {% if m.note %}<div class="note small">{{ m.note }}</div>{% endif %}
+  </div>
+  {% endwith %}
+  {% if m.can_review %}
+    <div class="meal-foot">
+      <form method="post" class="quick-feedback" aria-label="How was it? (for everyone)"
+            action="{% url 'meals:feedback_quick' m.pk %}{% if return_to %}?next={{ return_to|urlencode }}{% endif %}">
+        {% csrf_token %}
+        {% for r in m.quick_ratings %}
+          <button type="submit" name="rating" value="{{ r.value }}" class="qf" aria-pressed="{{ r.on|yesno:'true,false' }}"
+                  title="{{ r.label }} – everyone" aria-label="{{ r.label }} – everyone">{{ r.emoji }}</button>
+        {% endfor %}
+      </form>
+      {% if m.review %}
+        <span class="review small">
+          {% if m.review.kids != m.review.parents %}
+            <span class="split">{% if m.review.kids %}Kids {{ m.review.kids_emoji }}{% endif %}
+              {% if m.review.parents %}Parents {{ m.review.parents_emoji }}{% endif %}</span>
+          {% endif %}
+          {% if m.review.reaction %}<span class="warn" title="{{ m.review.reaction }}">⚠</span>{% endif %}
+        </span>
+      {% endif %}
+      <a class="btn ghost small" href="{% url 'meals:feedback' m.pk %}{% if return_to %}?next={{ return_to|urlencode }}{% endif %}">Feedback</a>
+    </div>
+  {% endif %}
+</article>

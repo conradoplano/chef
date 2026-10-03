@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Family · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <p class="muted small">Everything here is taken into account when a menu is created.</p>
+
+  <section class="card">
+    <div class="line section-head">
+      <h3>Family</h3>
+      <a class="btn ghost small" href="{% url 'meals:member_new' %}">+ Add</a>
+    </div>
+    {% for m in members %}
+      <a class="member" href="{% url 'meals:member' m.pk %}">
+        <div class="line">
+          <strong>{{ m.name }}</strong>
+          <span class="badge">{{ m.get_kind_display }}{% if m.age_now is not None %} · {{ m.age_now }}{% endif %}</span>
+        </div>
+        {% if m.allergies %}<div class="small warn">⚠ {{ m.allergies }}</div>{% endif %}
+        {% if m.likes %}<div class="small"><span class="muted">Likes:</span> {{ m.likes }}</div>{% endif %}
+        {% if m.dislikes %}<div class="small"><span class="muted">Dislikes:</span> {{ m.dislikes }}</div>{% endif %}
+        {% if m.avoid %}<div class="small"><span class="muted">Won't eat:</span> {{ m.avoid }}</div>{% endif %}
+      </a>
+    {% empty %}
+      <p class="muted">Add everyone who eats with us, with their likes, dislikes and allergies.</p>
+    {% endfor %}
+  </section>
+
+  <section class="card">
+    <div class="line section-head">
+      <h3>Usual week</h3>
+      <a class="btn ghost small" href="{% url 'meals:usual_week' %}">Edit</a>
+    </div>
+    <p class="muted small">Which meals we need and who eats them – the starting point when creating a menu.</p>
+    <table class="kv small">
+      {% for day, text in usual_week %}<tr><td class="muted">{{ day }}</td><td>{{ text }}</td></tr>{% endfor %}
+    </table>
+  </section>
+
+  <section class="card">
+    <h3>Rules</h3>
+    <ul class="rules">
+      {% for r in rules %}
+        <li class="{% if not r.active %}off{% endif %}">
+          <form method="post" action="{% url 'meals:rule_toggle' r.pk %}" class="inline">
+            {% csrf_token %}
+            <button type="submit" class="toggle" aria-pressed="{{ r.active|yesno:'true,false' }}"
+                    title="{% if r.active %}Switch off{% else %}Switch on{% endif %}">{% if r.active %}✓{% endif %}</button>
+          </form>
+          <a href="{% url 'meals:rule' r.pk %}">{{ r.text }}</a>
+        </li>
+      {% empty %}
+        <li class="muted">No rules yet, e.g. "Fish twice a week" or "Pizza on Sunday".</li>
+      {% endfor %}
+    </ul>
+    <form method="post" class="add-rule">
+      {% csrf_token %}
+      {{ rule_form.text }}
+      <input type="hidden" name="rule-active" value="on">
+      <button type="submit">Add</button>
+    </form>
+    {{ rule_form.text.errors }}
+  </section>
+
+  <section class="card">
+    <div class="line section-head">
+      <h3>Household</h3>
+      <a class="btn ghost small" href="{% url 'meals:household' %}">Edit</a>
+    </div>
+    {% if household_rows %}
+      <table class="kv">
+        {% for label, value in household_rows %}
+          <tr><td class="muted">{{ label|capfirst }}</td><td>{{ value|linebreaksbr }}</td></tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p class="muted">How we cook and shop: cooking times, cuisines, equipment, shops and pantry staples.</p>
+    {% endif %}
+  </section>
+{% endblock %}

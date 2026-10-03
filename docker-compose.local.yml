@@ -1,0 +1,16 @@
+# Try the production image on this machine over plain http://localhost:8061.
+# (Browsers block port 5061 as "unsafe", so the local port differs from the NAS one.)
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+services:
+  chef:
+    ports: !override
+      - "8061:8000"
+    environment:
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      CSRF_TRUSTED_ORIGINS: http://localhost:8061,http://127.0.0.1:8061
+      BEHIND_PROXY: "false"
+      SECURE_COOKIES: "false"
+      # Sign in with just an email: no code, no email sent. Local testing only.
+      DEV_LOGIN: "true"
+    volumes:
+      - ./data-local:/data

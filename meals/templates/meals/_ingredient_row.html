@@ -1,0 +1,10 @@
+<div class="ingredient-row card">
+  {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+  {{ form.non_field_errors }}
+  <div class="ing-name">{{ form.name }}{{ form.name.errors }}</div>
+  <div class="ing-qty">{{ form.quantity }}{{ form.quantity.errors }}</div>
+  <div class="ing-unit">{{ form.unit }}{{ form.unit.errors }}</div>
+  <div class="ing-cat">{{ form.category }}</div>
+  <div class="ing-note">{{ form.note }}</div>
+  {% if form.instance.pk %}<label class="check ing-del">{{ form.DELETE }} Remove</label>{% endif %}
+</div>

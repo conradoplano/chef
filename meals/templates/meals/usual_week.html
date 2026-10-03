@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Usual week · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <h2>Usual week</h2>
+  <p class="muted">Which meals we normally need and who eats them. This is the starting point each time you create a menu, and you can change it for that week.</p>
+  {% if not members %}
+    <div class="flash">Add your <a href="{% url 'meals:member_new' %}">family members</a> first to choose who eats each meal.</div>
+  {% endif %}
+  <form method="post" class="stack">
+    {% csrf_token %}
+    {% include "meals/_slots_grid.html" %}
+    <button class="wide" type="submit">Save usual week</button>
+  </form>
+{% endblock %}

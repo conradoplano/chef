@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Feedback · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <h2>How was it?</h2>
+  <p class="muted">{{ meal.dish.icon }} {{ meal.dish.name }} · {{ meal.get_slot_display|lower }} on {{ meal.date|date:"l j M" }}</p>
+  <form method="post" class="card stack">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <div class="field pills">{{ form.kids.label_tag }}{{ form.kids }}{{ form.kids.errors }}</div>
+    <div class="field pills">{{ form.parents.label_tag }}{{ form.parents }}{{ form.parents.errors }}</div>
+    <div class="field">
+      {{ form.reaction.label_tag }}{{ form.reaction }}
+      <p class="muted small">{{ form.reaction.help_text }}</p>{{ form.reaction.errors }}
+    </div>
+    <div class="field">
+      {{ form.notes.label_tag }}{{ form.notes }}
+      <p class="muted small">{{ form.notes.help_text }}</p>{{ form.notes.errors }}
+    </div>
+    <button class="wide" type="submit">Save feedback</button>
+  </form>
+  {% if review %}
+    <form method="post" class="center">
+      {% csrf_token %}
+      <button type="submit" name="delete" value="1" class="danger">Remove feedback</button>
+    </form>
+  {% endif %}
+{% endblock %}

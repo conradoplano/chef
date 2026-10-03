@@ -1,0 +1,43 @@
+# Compose file for the Synology NAS (Container Manager → Project → Create →
+# "Create docker-compose.yml" and paste this). Fill in the values below;
+# they only live on the NAS, never in git.
+#
+# Image built by .github/workflows/docker.yml on every push to main.
+services:
+  chef:
+    image: ghcr.io/conradoplano/chef:latest
+    # Always fetch the newest image when the project is built/started.
+    pull_policy: always
+    container_name: chef
+    restart: unless-stopped
+    ports:
+      # Only reachable from the NAS itself; DSM's reverse proxy serves it over HTTPS.
+      - "127.0.0.1:5061:8000"
+    volumes:
+      # Database. Relative to the project folder, e.g. /docker/chef/data. Back this up.
+      # Synology doesn't create missing folders: create "data" in File Station first.
+      - ./data:/data
+    environment:
+      # python -c "import secrets; print(secrets.token_urlsafe(50))"
+      SECRET_KEY: "change-me"
+      DEBUG: "false"
+      ALLOWED_HOSTS: "chef.bayley-plano.com,localhost,127.0.0.1"
+      CSRF_TRUSTED_ORIGINS: "https://chef.bayley-plano.com"
+      BEHIND_PROXY: "true"
+      SECURE_COOKIES: "true"
+      TIME_ZONE: "Europe/Berlin"
+      SITE_NAME: "Chef"
+      # Created/updated as admin on every start (optional)
+      INITIAL_ADMIN_EMAIL: ""
+      # SMTP for login codes and notifications
+      EMAIL_HOST: "smtp.example.com"
+      EMAIL_PORT: "587"
+      EMAIL_HOST_USER: ""
+      EMAIL_HOST_PASSWORD: ""
+      EMAIL_USE_TLS: "true"
+      DEFAULT_FROM_EMAIL: "Chef <chef@example.com>"
+      LOGIN_CODE_MAX_AGE: "600"
+      # AI menu planning (platform.openai.com/api-keys); empty switches it off
+      OPENAI_API_KEY: ""
+      AI_MODEL: "gpt-6.1-sol"
+      AI_EFFORT: "medium"

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Ingredients · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <h2>Ingredients</h2>
+  <p class="muted">{{ dish.icon }} {{ dish.name }} – for the whole family. These go on the shopping list whenever the dish is on the menu.</p>
+
+  <form method="post" class="stack" id="ingredients">
+    {% csrf_token %}
+    {{ formset.management_form }}
+    <div class="field servings-field">
+      {{ servings_form.servings.label_tag }}{{ servings_form.servings }}
+      <p class="muted small">{{ servings_form.servings.help_text }}</p>{{ servings_form.servings.errors }}
+    </div>
+    {{ formset.non_form_errors }}
+    <div id="ingredient-rows">
+      {% for form in formset %}
+        {% include "meals/_ingredient_row.html" %}
+      {% endfor %}
+    </div>
+    <template id="empty-row">{% with form=formset.empty_form %}{% include "meals/_ingredient_row.html" %}{% endwith %}</template>
+    <button type="button" class="ghost" id="add-row">+ Another ingredient</button>
+    <button class="wide" type="submit">Save ingredients</button>
+  </form>
+
+  <datalist id="units">{% for u in units %}<option value="{{ u }}">{% endfor %}</datalist>
+  <datalist id="ingredient-names">{% for n in names %}<option value="{{ n }}">{% endfor %}</datalist>
+
+  <script>
+    document.getElementById('add-row').addEventListener('click', () => {
+      const total = document.getElementById('id_ingredients-TOTAL_FORMS');
+      const html = document.getElementById('empty-row').innerHTML.replace(/__prefix__/g, total.value);
+      document.getElementById('ingredient-rows').insertAdjacentHTML('beforeend', html);
+      total.value = Number(total.value) + 1;
+      document.querySelector('#ingredient-rows .ingredient-row:last-child input').focus();
+    });
+  </script>
+{% endblock %}

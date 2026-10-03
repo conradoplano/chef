@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Menu · {{ site_name }}{% endblock %}
+
+{% block content %}
+  {% include "meals/_weeknav.html" with url_of="meals:menu_of" url_this="meals:menu" %}
+
+  {% if menu_request and not menu_request.finished %}
+    <a class="flash planning-bar" href="{% url 'meals:menu_request' menu_request.pk %}">🍳 Creating the menu for this week… <strong>See progress</strong></a>
+  {% else %}
+    {% if menu_request.status == "done" and menu_request.summary %}
+      <details class="card about-menu"{% if about_open %} open{% endif %}>
+        <summary>✨ About this menu</summary>
+        <p>{{ menu_request.summary|linebreaksbr }}</p>
+      </details>
+    {% elif menu_request.status == "failed" %}
+      <div class="flash error small">Creating the menu didn't work: {{ menu_request.error }}</div>
+    {% endif %}
+    <a class="btn {% if meal_count %}ghost {% endif %}wide create-menu" href="{% url 'meals:menu_create' start.isoformat %}">✨ {% if meal_count %}Plan with AI{% else %}Create menu{% endif %}</a>
+  {% endif %}
+
+  {% for d in days %}
+    {% include "meals/_day_group.html" %}
+  {% endfor %}
+
+  {% if meal_count %}
+    <p class="muted small center">{{ meal_count }} meal{{ meal_count|pluralize }} planned this week</p>
+  {% endif %}
+{% endblock %}

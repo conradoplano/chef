@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}{% if member %}{{ member }}{% else %}Add family member{% endif %} · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <h2>{% if member %}{{ member }}{% else %}Add family member{% endif %}</h2>
+  <form method="post" class="card stack">
+    {% csrf_token %}
+    {% include "meals/_fields.html" %}
+    <button class="wide" type="submit">Save</button>
+  </form>
+  {% if member %}
+    <form method="post" class="center">
+      {% csrf_token %}
+      <button type="submit" name="delete" value="1" class="danger">Remove</button>
+    </form>
+  {% endif %}
+{% endblock %}

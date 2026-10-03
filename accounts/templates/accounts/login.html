@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}Sign in · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <div class="card narrow">
+    <h2>Sign in</h2>
+    {% if dev_login %}
+      <div class="flash">Local test mode: you're signed in straight away, no code is sent.</div>
+    {% else %}
+      <p class="muted">Enter your email and we'll send you a six-digit code. No password needed.</p>
+    {% endif %}
+    <form method="post" class="stack">
+      {% csrf_token %}
+      <div class="field">
+        {{ form.email.label_tag }}{{ form.email }}
+        {{ form.email.errors }}
+      </div>
+      <button class="wide" type="submit">{% if dev_login %}Sign in{% else %}Send me a code{% endif %}</button>
+    </form>
+  </div>
+{% endblock %}

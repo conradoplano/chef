@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Create menu · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <h2>✨ Create menu</h2>
+  <p class="muted">Week of {{ start|date:"j M" }} – {{ end|date:"j M Y" }}. Check which meals are needed and who's eating; the menu and shopping list are created from that, your family profile, rules and past feedback.</p>
+
+  {% if not ai_enabled %}
+    <div class="flash error">Menu planning with AI isn't set up yet: add <code>OPENAI_API_KEY</code> to the app's settings (see the README).</div>
+  {% endif %}
+  {% if not members %}
+    <div class="flash">Tip: add your <a href="{% url 'meals:family' %}">family members</a> so the menu knows who's eating and what they like.</div>
+  {% endif %}
+
+  <form method="post" class="stack" id="create-menu">
+    {% csrf_token %}
+    {% include "meals/_slots_grid.html" %}
+
+    {% if existing %}
+      <div class="card">
+        <h3>Already planned</h3>
+        <ul class="plain-list small">
+          {% for m in existing %}<li>{{ m.date|date:"D" }} {{ m.get_slot_display|lower }} – {{ m.dish.name }}{% if m.leftovers %} (leftovers){% endif %}</li>{% endfor %}
+        </ul>
+        <label class="check"><input type="checkbox" name="replace"{% if not keep_existing %} checked{% endif %}> Replace these where a meal is ticked above</label>
+        <p class="muted small">Otherwise they stay, and only the empty meals are planned.</p>
+      </div>
+    {% endif %}
+
+    <div class="field">
+      <label for="details">Anything special this week?</label>
+      <textarea id="details" name="details" rows="4" placeholder="E.g. guests on Saturday (2 adults), use up the courgettes in the fridge, something quick on Wednesday, the kids want pancakes">{{ details }}</textarea>
+    </div>
+
+    <button class="wide" type="submit"{% if not ai_enabled %} disabled{% endif %}>✨ Create menu</button>
+    <p class="muted small center">This takes a minute or two.</p>
+  </form>
+{% endblock %}
