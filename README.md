@@ -4,6 +4,28 @@ Small Django app to plan our family's meals for the week and share the shopping 
 Runs on the NAS as a Docker container, data in SQLite. Works on the phone and can be added
 to the home screen. Vibecoded with Claude Opus 5.5.
 
+## Screenshots
+
+Phone screens with made-up demo data.
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/home.jpg" width="250" alt="Home: today's meals with one-tap feedback, and next week"><br><sub><b>Home</b> – today and the days ahead</sub></td>
+    <td align="center"><img src="docs/screenshots/menu.jpg" width="250" alt="Week menu with meal cards"><br><sub><b>Menu</b> – the week, swipe between weeks</sub></td>
+    <td align="center"><img src="docs/screenshots/shopping.jpg" width="250" alt="Shopping list grouped by section, with ticked items"><br><sub><b>Shopping</b> – merged, scaled, synced ticks</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/recipes.jpg" width="250" alt="Recipe binder with favourites and a recipe read from photos"><br><sub><b>Recipes</b> – the binder</sub></td>
+    <td align="center"><img src="docs/screenshots/recipe.jpg" width="250" alt="A magazine recipe with its method and photo"><br><sub><b>A recipe</b> – read from a magazine photo</sub></td>
+    <td align="center"><img src="docs/screenshots/create-menu.jpg" width="250" alt="Create menu: which meals and who eats them"><br><sub><b>Create menu</b> – who eats when</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/settings.jpg" width="250" alt="Settings: family, usual week, rules and household"><br><sub><b>Settings</b> – family, rules, household</sub></td>
+    <td></td>
+    <td></td>
+  </tr>
+</table>
+
 ## What it does
 
 - **Home** – today's meals and the rest of the week (on Sundays: next Monday to Friday), with one-tap feedback.

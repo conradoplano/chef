@@ -10,3 +10,4 @@ staticfiles
 .idea
 data-local
 dist
+docs
