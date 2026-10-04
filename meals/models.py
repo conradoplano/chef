@@ -191,17 +191,17 @@ class Household(models.Model):
     pantry = models.TextField("pantry staples", blank=True, help_text="Things we always have; left off the shopping list.")
 
     class OtherSites(models.TextChoices):
-        NEVER = "never", "Never – only the sites above"
+        NEVER = "never", "Never – only the sources above"
         RARELY = "rarely", "Rarely – about one recipe a week"
         SOMETIMES = "sometimes", "Sometimes – about a third of the recipes"
         OFTEN = "often", "Often – whenever another site has a better recipe"
 
     recipe_sites = models.TextField(
-        "recipe websites", blank=True,
-        help_text="One per line, e.g. bbcgoodfood.com. Searched first when creating a menu.",
+        "recipe sources", blank=True,
+        help_text="One per line: websites (bbcgoodfood.com) or names (Jamie Oliver). Searched first when creating a menu.",
     )
     other_sites = models.CharField(
-        "recipes from other websites", max_length=10, choices=OtherSites.choices, default=OtherSites.SOMETIMES
+        "recipes from other sources", max_length=10, choices=OtherSites.choices, default=OtherSites.SOMETIMES
     )
     # Which meals we usually need and who eats them, by weekday ("0" = Monday):
     # {"0": {"lunch": {"on": false, "eaters": [ids]}, "dinner": {...}}, ...}. See meals.schedule.

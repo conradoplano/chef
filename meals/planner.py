@@ -38,7 +38,7 @@ How to plan:
 - Pay close attention to the notes for this week.
 
 Recipes:
-- Use web search to find a real recipe page for each new dish. If the household lists recipe websites, search those first and use other sites only as often as the household setting allows; otherwise prefer well-known recipe sites. Only use URLs that appeared in your search results; if you can't find a good one, leave recipe_url empty. Dishes listed with a recipe link in the history can keep that link without searching.
+- Use web search to find a real recipe page for each new dish. If the household lists recipe sources (websites, or names of cooks or brands - search for their recipe pages), search those first and use other sources only as often as the household setting allows; otherwise prefer well-known recipe sites. Only use URLs that appeared in your search results; if you can't find a good one, leave recipe_url empty. Dishes listed with a recipe link in the history can keep that link without searching.
 - Keep searching efficient: a few targeted searches, not one per ingredient.
 
 Ingredients:
@@ -102,22 +102,32 @@ SAVE_MENU_TOOL = {
     },
 }
 
-def recipe_domains(text):
-    """Domains from the household's recipe websites: one per line or comma separated, with or without https://."""
-    domains = []
-    for entry in re.split(r"[\s,;]+", text or ""):
-        entry = re.sub(r"^https?://", "", entry.strip().lower()).split("/")[0].removeprefix("www.")
-        if "." in entry and entry not in domains:
-            domains.append(entry)
-    return domains
+DOMAIN = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+$")
+
+
+def recipe_sources(text):
+    """The household's recipe sources, one per line (or comma separated): websites like
+    "bbcgoodfood.com" (with or without https://) or names like "Jamie Oliver".
+    Returns (domains, names)."""
+    domains, names = [], []
+    for entry in re.split(r"[\n,;]+", text or ""):
+        entry = " ".join(entry.split())
+        host = re.sub(r"^https?://", "", entry.lower()).split("/")[0].removeprefix("www.")
+        if DOMAIN.match(host):
+            if host not in domains:
+                domains.append(host)
+        elif entry and entry not in names:
+            names.append(entry)
+    return domains, names
 
 
 def web_search_tool(household):
     # Without a location the search defaults to the United States; use the app's time zone instead.
     tool = {"type": "web_search", "user_location": {"type": "approximate", "timezone": settings.TIME_ZONE}}
-    domains = recipe_domains(household.recipe_sites)
-    if domains and household.other_sites == Household.OtherSites.NEVER:
-        # Enforced by the search itself, not just asked for in the prompt.
+    domains, names = recipe_sources(household.recipe_sites)
+    # "Never other sites" is enforced by the search itself when every source is a website. A name
+    # (e.g. "Jamie Oliver") has no known address, so then the prompt alone keeps to the sources.
+    if domains and not names and household.other_sites == Household.OtherSites.NEVER:
         tool["filters"] = {"allowed_domains": domains}
     return tool
 
@@ -197,9 +207,10 @@ def build_prompt(request):
             ("Where we shop", household.shops),
             ("Optimise the shopping for", household.get_priority_display()),
             ("Pantry staples we usually have", household.pantry),
-            ("Recipe websites to search first", ", ".join(recipe_domains(household.recipe_sites))),
-            ("Recipes from other websites",
-             recipe_domains(household.recipe_sites) and household.get_other_sites_display()),
+            ("Recipe sources to search first (websites, cooks or brands)",
+             ", ".join(sum(recipe_sources(household.recipe_sites), []))),
+            ("Recipes from other sources",
+             household.recipe_sites.strip() and household.get_other_sites_display()),
         ]
         if value
     ]

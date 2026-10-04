@@ -462,17 +462,29 @@ class RecipeSitesTests(TestCase):
         household.save()
         return household
 
-    def test_domains_are_parsed_from_lines_and_urls(self):
+    def test_websites_and_names_are_parsed(self):
         self.assertEqual(
-            planner.recipe_domains("https://www.bbcgoodfood.com/recipes\nchefkoch.de, jamieoliver.com\n\nnot a site"),
-            ["bbcgoodfood.com", "chefkoch.de", "jamieoliver.com"],
+            planner.recipe_sources("https://www.bbcgoodfood.com/recipes\nchefkoch.de, jaime  oliver\n\nOttolenghi; BBC.co.uk"),
+            (["bbcgoodfood.com", "chefkoch.de", "bbc.co.uk"], ["jaime oliver", "Ottolenghi"]),
         )
+
+    def test_names_go_into_the_prompt_and_lift_the_search_limit(self):
+        household = self._household("bbcgoodfood.com\njaime oliver", "never")
+        prompt = planner.build_prompt(self.request)
+        self.assertIn("Recipe sources to search first (websites, cooks or brands): bbcgoodfood.com, jaime oliver", prompt)
+        self.assertIn("Recipes from other sources: Never – only the sources above", prompt)
+        # Jamie Oliver's site isn't known, so the search can't be limited to the listed sites.
+        self.assertNotIn("filters", planner.web_search_tool(household))
+
+    def test_only_names(self):
+        self._household("Jamie Oliver", "rarely")
+        self.assertIn("search first (websites, cooks or brands): Jamie Oliver", planner.build_prompt(self.request))
 
     def test_sites_and_frequency_go_into_the_prompt(self):
         self._household("bbcgoodfood.com\nchefkoch.de", "rarely")
         prompt = planner.build_prompt(self.request)
-        self.assertIn("Recipe websites to search first: bbcgoodfood.com, chefkoch.de", prompt)
-        self.assertIn("Recipes from other websites: Rarely – about one recipe a week", prompt)
+        self.assertIn("Recipe sources to search first (websites, cooks or brands): bbcgoodfood.com, chefkoch.de", prompt)
+        self.assertIn("Recipes from other sources: Rarely – about one recipe a week", prompt)
         self.assertNotIn("filters", planner.web_search_tool(Household.load()))
 
     def test_never_limits_the_search_to_those_sites(self):
@@ -481,5 +493,5 @@ class RecipeSitesTests(TestCase):
 
     def test_no_sites_no_mention(self):
         household = self._household("", "never")
-        self.assertNotIn("Recipe websites", planner.build_prompt(self.request))
+        self.assertNotIn("Recipe sources", planner.build_prompt(self.request))
         self.assertNotIn("filters", planner.web_search_tool(household))
