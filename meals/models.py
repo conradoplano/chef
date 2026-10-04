@@ -46,6 +46,11 @@ class Dish(models.Model):
         "portions", default=4, help_text="How many portions the ingredient quantities are for."
     )
     notes = models.TextField(blank=True)
+    # For recipes without a web page (magazines, books, family recipes) the app keeps the recipe itself.
+    source = models.CharField(
+        max_length=200, blank=True, help_text="Where it's from, e.g. BBC Good Food magazine, Oct 2026, p. 42."
+    )
+    instructions = models.TextField("method", blank=True, help_text="The steps, one per line.")
     # The recipe binder: recipes we like, and ones we found and want to try.
     status = models.CharField("binder", max_length=10, choices=Status.choices, default=Status.NONE, blank=True)
     saved_at = models.DateTimeField(null=True, blank=True, help_text="When it was put in the binder.")
@@ -60,6 +65,15 @@ class Dish(models.Model):
     @property
     def icon(self):
         return self.ICONS.get(self.kind, "🍽")
+
+    @property
+    def has_own_recipe(self):
+        """True when the app holds the recipe itself (method or photos), e.g. from a magazine."""
+        return bool(self.instructions.strip()) or bool(self.photos.all())
+
+    @property
+    def steps(self):
+        return [line.strip() for line in self.instructions.splitlines() if line.strip()]
 
     def set_status(self, status):
         """Moves the recipe in the binder; remembers when it was first saved."""
@@ -356,3 +370,59 @@ class MenuRequest(models.Model):
     @property
     def finished(self):
         return self.status in (self.Status.DONE, self.Status.FAILED)
+
+
+class RecipeImport(models.Model):
+    """Photos of a recipe (e.g. from a magazine) being read by AI, then checked by the family."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Waiting"
+        RUNNING = "running", "Reading"
+        DONE = "done", "Ready to check"
+        FAILED = "failed", "Failed"
+        SAVED = "saved", "Saved"
+
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    result = models.JSONField(default=dict, blank=True, help_text="What the AI read, before checking.")
+    error = models.TextField(blank=True)
+    dish = models.ForeignKey(Dish, null=True, blank=True, on_delete=models.SET_NULL, related_name="imports")
+    model = models.CharField(max_length=50, blank=True)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    web_searches = models.PositiveIntegerField(default=0)
+    cost = models.DecimalField("cost (USD)", max_digits=8, decimal_places=4, null=True, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Recipe photos {self.created_at:%Y-%m-%d %H:%M} ({self.get_status_display()})"
+
+    @property
+    def finished(self):
+        return self.status not in (self.Status.PENDING, self.Status.RUNNING)
+
+
+class RecipePhoto(models.Model):
+    """A photo of a recipe (magazine page, book, handwritten card) or of the finished dish."""
+
+    image = models.ImageField(upload_to="recipes/%Y/%m")
+    dish = models.ForeignKey(Dish, null=True, blank=True, on_delete=models.CASCADE, related_name="photos")
+    recipe_import = models.ForeignKey(RecipeImport, null=True, blank=True, on_delete=models.SET_NULL, related_name="photos")
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+
+    def __str__(self):
+        return self.image.name
+
+    def delete(self, *args, **kwargs):
+        storage, name = self.image.storage, self.image.name
+        super().delete(*args, **kwargs)
+        if name:
+            storage.delete(name)

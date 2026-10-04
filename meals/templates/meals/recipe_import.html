@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Recipe from a photo · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <p class="small"><a href="{% url 'meals:recipes' %}">‹ Recipes</a></p>
+  {% if photos %}
+    <div class="photo-strip">
+      {% for p in photos %}<a href="{% url 'meals:photo' p.pk %}" target="_blank"><img src="{% url 'meals:photo' p.pk %}" alt="Recipe photo {{ forloop.counter }}"></a>{% endfor %}
+    </div>
+  {% endif %}
+
+  {% if not job.finished %}
+    <div class="card center planning" id="planning" data-status-url="{% url 'meals:recipe_import_status' job.pk %}">
+      <div class="spinner" aria-hidden="true">📖</div>
+      <h2>Reading the recipe…</h2>
+      <p class="muted">Copying ingredients and method, and looking for it online. This usually takes under a minute.</p>
+    </div>
+  {% elif job.status == "failed" and not manual %}
+    <div class="card center planning">
+      <div class="big">😕</div>
+      <h2>That didn't work</h2>
+      <p>{{ job.error }}</p>
+      <form method="post" action="{% url 'meals:recipe_import_retry' job.pk %}" class="inline">{% csrf_token %}<button type="submit">Try again</button></form>
+      <p class="small"><a href="?manual=1">Fill it in yourself</a></p>
+    </div>
+  {% else %}
+    <h2>Check the recipe</h2>
+    {% if job.status == "done" %}
+      <p class="muted">The AI read the photos{% if form.initial.recipe_url %} and found it online{% endif %}. Check it against the photos, especially quantities{% if checks %} – <strong class="warn">⚠ {{ checks }} ingredient{{ checks|pluralize }} to double-check</strong>{% endif %}.</p>
+    {% endif %}
+    <form method="post" class="stack" id="ingredients">
+      {% csrf_token %}
+      <div class="card stack">{% include "meals/_fields.html" %}</div>
+      <h3>Ingredients</h3>
+      {{ formset.management_form }}
+      {{ formset.non_form_errors }}
+      <div id="ingredient-rows">
+        {% for form in formset %}{% include "meals/_ingredient_row.html" %}{% endfor %}
+      </div>
+      <template id="empty-row">{% with form=formset.empty_form %}{% include "meals/_ingredient_row.html" %}{% endwith %}</template>
+      <button type="button" class="ghost" id="add-row">+ Another ingredient</button>
+      <button class="wide" type="submit">Save recipe</button>
+    </form>
+    <datalist id="units">{% for u in units %}<option value="{{ u }}">{% endfor %}</datalist>
+    <datalist id="ingredient-names">{% for n in names %}<option value="{{ n }}">{% endfor %}</datalist>
+  {% endif %}
+{% endblock %}

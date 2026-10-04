@@ -58,7 +58,9 @@ def week_context(request, day):
 
 def planned_meals(start, end, today):
     """Meals between two dates, prepared for the meal card template."""
-    meals = list(PlannedMeal.objects.filter(date__range=(start, end)).select_related("dish", "feedback"))
+    meals = list(
+        PlannedMeal.objects.filter(date__range=(start, end)).select_related("dish", "feedback").prefetch_related("dish__photos")
+    )
     for meal in meals:
         meal.review = getattr(meal, "feedback", None)
         # Feedback once it has been eaten; leftovers share the feedback of the day it was cooked.

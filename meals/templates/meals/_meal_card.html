@@ -20,6 +20,8 @@
       {% if recipe %}
         {# Stretched link: its ::after covers the whole top part of the card. #}
         <a class="meal-link" href="{{ recipe }}" target="_blank" rel="noopener">{% include "meals/_meal_name.html" %}</a>
+      {% elif m.dish.has_own_recipe %}
+        <a class="meal-link" href="{% url 'meals:recipe' m.dish.pk %}">{% include "meals/_meal_name.html" %}</a>
       {% else %}
         {% include "meals/_meal_name.html" %}
       {% endif %}
@@ -33,7 +35,8 @@
       {% if m.servings and not m.leftovers %}
         <span title="Portions to cook">👥 {{ m.servings }}</span>
       {% endif %}
-      {% if recipe %}<span class="badge source">{{ m.dish.recipe_source }} ↗</span>{% endif %}
+      {% if recipe %}<span class="badge source">{{ m.dish.recipe_source }} ↗</span>
+      {% elif m.dish.has_own_recipe %}<span class="badge source">{% if m.dish.source %}📷 {{ m.dish.source|truncatechars:28 }}{% else %}📖 Recipe{% endif %}</span>{% endif %}
     </div>
     {% if m.note %}<div class="note small">{{ m.note }}</div>{% endif %}
   </div>

@@ -5,7 +5,10 @@
 {% block content %}
   <div class="line section-head">
     <h2>📖 Recipes</h2>
-    <a class="btn small" href="{% url 'meals:recipe_new' %}">+ Add recipe</a>
+    <span class="add-buttons">
+      <a class="btn ghost small" href="{% url 'meals:recipe_photo_new' %}">📷 From photo</a>
+      <a class="btn small" href="{% url 'meals:recipe_new' %}">+ Add</a>
+    </span>
   </div>
 
   <nav class="filter-pills" aria-label="Show">
@@ -26,7 +29,7 @@
       </div>
       <div class="meta small muted">
         {% if d.minutes %}<span>⏱ {{ d.minutes }} min</span>{% endif %}
-        {% if d.recipe_url %}<span class="badge source">{{ d.recipe_source }}</span>{% endif %}
+        {% if d.recipe_url %}<span class="badge source">{{ d.recipe_source }}</span>{% elif d.source %}<span class="badge source">📷 {{ d.source|truncatechars:28 }}</span>{% elif d.has_own_recipe %}<span class="badge source">📖 Recipe</span>{% endif %}
         {% if d.cooked %}<span>Cooked {{ d.cooked }}×{% if d.last_cooked %} · last {{ d.last_cooked|date:"j M" }}{% endif %}</span>{% else %}<span>Not cooked yet</span>{% endif %}
         {% with f=d.latest_feedback %}{% if f %}<span>{% if f.kids %}Kids {{ f.kids_emoji }}{% endif %} {% if f.parents %}Parents {{ f.parents_emoji }}{% endif %}{% if f.reaction %} ⚠{% endif %}</span>{% endif %}{% endwith %}
       </div>

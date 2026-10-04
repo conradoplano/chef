@@ -149,6 +149,13 @@ else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "chef@localhost")
 
+# Uploaded recipe photos, next to the database (back up the whole data folder).
+# They're served by a login-protected view, never as public files.
+MEDIA_ROOT = DATA_DIR / "media"
+MEDIA_URL = "/media/"
+RECIPE_PHOTO_MAX_MB = 25  # per photo, before it's scaled down
+RECIPE_PHOTOS_PER_IMPORT = 6
+
 # AI menu planning (OpenAI). Without an API key the "Create menu" feature is switched off.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 AI_MODEL = os.environ.get("AI_MODEL", "gpt-5.4-mini")

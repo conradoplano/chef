@@ -367,3 +367,16 @@ button.icon-btn.star.on { color: var(--saffron); }
 .title-row { display: flex; align-items: flex-start; gap: .5rem; }
 .title-row h2 { flex: 1; min-width: 0; }
 .title-row .icon-btn { margin-top: .6rem; }
+
+/* Recipe photos */
+.add-buttons { display: inline-flex; gap: .4rem; }
+.photo-strip { display: flex; gap: .5rem; overflow-x: auto; margin-bottom: .75rem; padding-bottom: .25rem; }
+.photo-strip img { height: 9rem; width: auto; border-radius: 8px; border: 1px solid var(--border); display: block; }
+.photo-strip figure { margin: 0; text-align: center; }
+.add-photo { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: .5rem; }
+.add-photo input { flex: 1; min-width: 0; font-size: .85rem; }
+input[type=file] { font: inherit; max-width: 100%; }
+.steps { margin: 0; padding-left: 1.3rem; }
+.steps li { margin-bottom: .45rem; }
+.ingredient-row.needs-check { border-color: var(--saffron); box-shadow: 0 0 0 1px var(--saffron); }
+.check-note { grid-column: 1 / -1; margin: 0; color: var(--saffron); font-weight: 600; }

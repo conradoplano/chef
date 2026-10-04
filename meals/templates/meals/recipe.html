@@ -14,6 +14,7 @@
     <span>{{ dish.servings }} portions</span>
     {% if dish.recipe_url %}<a class="badge source" href="{{ dish.recipe_url }}" target="_blank" rel="noopener">{{ dish.recipe_source }} ↗</a>{% endif %}
   </div>
+  {% if dish.source %}<p class="small muted">📷 {{ dish.source }}</p>{% endif %}
   {% if dish.notes %}<p class="note">{{ dish.notes|linebreaksbr }}</p>{% endif %}
 
   <form method="post" action="{% url 'meals:recipe_status' dish.pk %}" class="status-choice" aria-label="In the binder as">
@@ -45,6 +46,36 @@
     {% else %}
       <p class="muted small">None yet – add them so this recipe fills the shopping list when it's on a menu.</p>
     {% endif %}
+  </section>
+
+  {% if dish.steps %}
+    <section class="card">
+      <h3>Method</h3>
+      <ol class="steps">{% for step in dish.steps %}<li>{{ step }}</li>{% endfor %}</ol>
+    </section>
+  {% endif %}
+
+  <section class="card" id="photos">
+    <h3>Photos</h3>
+    {% with photos=dish.photos.all %}
+      {% if photos %}
+        <div class="photo-strip">
+          {% for p in photos %}
+            <figure>
+              <a href="{% url 'meals:photo' p.pk %}" target="_blank"><img src="{% url 'meals:photo' p.pk %}" alt="Photo of {{ dish.name }}" loading="lazy"></a>
+              <form method="post" action="{% url 'meals:photo_delete' p.pk %}">{% csrf_token %}<button type="submit" class="link small danger">Remove</button></form>
+            </figure>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted small">E.g. the magazine page, or how it turned out.</p>
+      {% endif %}
+    {% endwith %}
+    <form method="post" action="{% url 'meals:recipe_photo_add' dish.pk %}" enctype="multipart/form-data" class="add-photo">
+      {% csrf_token %}
+      <input type="file" name="photos" accept="image/*" multiple data-resize required aria-label="Photos">
+      <button type="submit" class="btn ghost small">Add photos</button>
+    </form>
   </section>
 
   <section class="card">

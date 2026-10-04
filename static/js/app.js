@@ -152,6 +152,42 @@
     setTimeout(poll, 3000);
   }
 
+  // --- Photos: scaled down in the browser before uploading (also turns iPhone HEIC into JPEG). ---
+  const shrink = (file) => new Promise((resolve) => {
+    if (!file.type.startsWith('image/')) return resolve(file);
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.naturalWidth * scale);
+      canvas.height = Math.round(img.naturalHeight * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      canvas.toBlob((blob) => {
+        if (!blob) return resolve(file);
+        // Keep a JPEG that's already small; anything else (big, PNG, HEIC...) becomes the scaled JPEG.
+        const keep = blob.size >= file.size && /jpe?g/.test(file.type);
+        resolve(keep ? file : new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }));
+      }, 'image/jpeg', 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+  document.querySelectorAll('input[type=file][data-resize]').forEach((input) => {
+    input.addEventListener('change', async () => {
+      const button = input.form.querySelector('[type=submit]');
+      if (button) button.disabled = true;
+      try {
+        const files = await Promise.all([...input.files].map(shrink));
+        const transfer = new DataTransfer();
+        files.forEach((f) => transfer.items.add(f));
+        input.files = transfer.files;
+      } catch (e) { /* keep the originals; the server scales them down */ }
+      if (button) button.disabled = false;
+    });
+  });
+
   // --- Installable app: pass-through service worker. ---
   const swUrl = document.body.dataset.swUrl;
   if (swUrl && 'serviceWorker' in navigator) navigator.serviceWorker.register(swUrl);

@@ -4,7 +4,7 @@
 
 {% block content %}
   <h2>{% if dish %}Edit recipe{% else %}Add a recipe{% endif %}</h2>
-  {% if not dish %}<p class="muted">A recipe you love, or one you found and want to try. Ingredients come next.</p>{% endif %}
+  {% if not dish %}<p class="muted">A recipe you love, or one you found and want to try. Ingredients come next. Have it on paper? <a href="{% url 'meals:recipe_photo_new' %}">📷 Read it from a photo</a>.</p>{% endif %}
   <form method="post" class="card stack">
     {% csrf_token %}
     {% include "meals/_fields.html" %}

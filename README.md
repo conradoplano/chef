@@ -14,6 +14,9 @@ to the home screen. Vibecoded with Claude Opus 5.5.
 - **Recipes** – the recipe binder: ★ favourites, recipes we found and want to try, and every dish cooked, with
   history and feedback. Add recipes, add them to a menu, star a dish from any meal card. A recipe to try that
   everyone likes becomes a favourite; AI planning reuses favourites and works in recipes to try.
+  **📷 From photo** reads a recipe from photos (magazine, cookbook, handwritten card) with AI: ingredients,
+  method, source, and a link if it's also online. You check everything before it's saved. Recipes without a
+  web page keep their method and photos in the app.
 - **Settings** (top right) – family members (likes, dislikes, allergies), the usual week (which meals, who eats),
   planning rules and household settings. All of it, plus past menus and feedback, goes into AI planning.
 
@@ -37,6 +40,8 @@ shopping list follows. See `meals/planner.py`.
 - Recipe links are cleaned up (e.g. `tollbit.` hosts) and dropped if the page doesn't exist.
 - The rest of the family gets an email when a menu is created or changed (`MENU_EMAILS`, links use
   `SITE_URL` or the first `CSRF_TRUSTED_ORIGINS` entry).
+- Recipe photos are scaled down on the phone and again on the server (max 2000 px, metadata removed), stored
+  in `data/media` and only shown to logged-in users. Reading one costs about a cent with `gpt-5.4-mini`.
 - Each request's prompt, raw answer, token counts, web searches and cost are in the admin (Menu requests).
   A request has 12 minutes; after 15 it counts as stalled and saves nothing.
 
@@ -81,7 +86,7 @@ docker compose up -d --build
   browsers refuse port 5061, which is only used behind the NAS reverse proxy):
   `docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build`
 - The SQLite database lives in `./data` (mounted at `/data`); back up that whole folder. It runs in WAL
-  mode, so `db.sqlite3-wal` and `db.sqlite3-shm` belong to it.
+  mode, so `db.sqlite3-wal` and `db.sqlite3-shm` belong to it. Recipe photos are in `data/media`.
   The container runs as UID 1000, so that folder must be writable for it.
 - Migrations run automatically on container start.
 - `INITIAL_ADMIN_EMAIL` in `.env` creates the first admin user on startup.
@@ -115,6 +120,7 @@ environment variables in the NAS project and never in git.
 - `meals/` – menu, shopping list, family and AI planning
   - `views/` – `menu.py`, `shopping.py`, `family.py`, `planning.py`, shared helpers in `common.py`
   - `planner.py` – prompt, OpenAI call, link checks and saving the menu; `notify.py` – menu emails
+  - `recipe_import.py` – reading recipes from photos; `photos.py` – scaling and cleaning photos
   - `shopping.py` – building the list; `schedule.py` – the usual week and the meals grid
 - `core/` – health check, web app manifest, service worker
 - `templates/`, `static/` – base template, CSS, `js/app.js`, icons

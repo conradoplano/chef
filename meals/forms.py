@@ -133,14 +133,23 @@ class DishServingsForm(forms.ModelForm):
 
 
 class RecipeForm(forms.ModelForm):
-    recipe_url = forms.URLField(label="Recipe link", max_length=500, required=False, assume_scheme="https")
+    recipe_url = forms.URLField(
+        label="Recipe link", max_length=500, required=False, assume_scheme="https",
+        help_text="If it's online. Otherwise the method below is the recipe.",
+    )
 
     class Meta:
         model = Dish
-        fields = ["name", "recipe_url", "kind", "minutes", "servings", "notes", "status"]
+        fields = ["name", "recipe_url", "source", "kind", "minutes", "servings", "instructions", "notes", "status"]
         labels = {"servings": "Portions", "status": "In the binder as"}
-        help_texts = {"servings": "How many portions the ingredients are for."}
-        widgets = {"notes": forms.Textarea(attrs={"rows": 3, "placeholder": "E.g. where we found it, what to change"})}
+        help_texts = {
+            "servings": "How many portions the ingredients are for.",
+            "recipe_url": "If it's online. Otherwise the method below is the recipe.",
+        }
+        widgets = {
+            "instructions": forms.Textarea(attrs={"rows": 8, "placeholder": "One step per line"}),
+            "notes": forms.Textarea(attrs={"rows": 3, "placeholder": "E.g. what to change next time"}),
+        }
 
     def clean_name(self):
         name = " ".join(self.cleaned_data["name"].split())

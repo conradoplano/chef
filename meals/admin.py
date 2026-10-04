@@ -1,6 +1,26 @@
 from django.contrib import admin
 
-from .models import Dish, ExtraItem, FamilyMember, Feedback, Household, Ingredient, MenuRequest, PlannedMeal, Rule
+from .models import (
+    Dish,
+    ExtraItem,
+    FamilyMember,
+    Feedback,
+    Household,
+    Ingredient,
+    MenuRequest,
+    PlannedMeal,
+    RecipeImport,
+    RecipePhoto,
+    Rule,
+)
+
+
+class RecipePhotoInline(admin.TabularInline):
+    model = RecipePhoto
+    fk_name = "dish"
+    extra = 0
+    fields = ("image", "uploaded_by", "created_at")
+    readonly_fields = ("uploaded_by", "created_at")
 
 
 class IngredientInline(admin.TabularInline):
@@ -13,7 +33,7 @@ class DishAdmin(admin.ModelAdmin):
     list_display = ("name", "kind", "status", "minutes", "recipe_url")
     list_filter = ("kind", "status")
     search_fields = ("name",)
-    inlines = [IngredientInline]
+    inlines = [IngredientInline, RecipePhotoInline]
 
 
 @admin.register(ExtraItem)
@@ -57,3 +77,10 @@ class MenuRequestAdmin(admin.ModelAdmin):
     list_display = ("week", "kind", "status", "model", "cost", "web_searches", "created_by", "created_at")
     list_filter = ("status", "kind", "model")
     readonly_fields = [f.name for f in MenuRequest._meta.fields]
+
+
+@admin.register(RecipeImport)
+class RecipeImportAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "status", "dish", "model", "cost", "created_by")
+    list_filter = ("status",)
+    readonly_fields = [f.name for f in RecipeImport._meta.fields]

@@ -1,0 +1,212 @@
+"""Recipes from photos: storing photos, reading them with (fake) AI, checking and saving."""
+import io
+import shutil
+import tempfile
+from datetime import date
+from unittest import mock
+
+from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
+from django.urls import reverse
+from PIL import Image
+
+from accounts.models import User
+
+from . import photos, planner, recipe_import
+from .models import Dish, PlannedMeal, RecipeImport, RecipePhoto
+from .test_planner import FakeOpenAI, message, reply
+
+
+def image_file(name="page.jpg", size=(3000, 1500), fmt="JPEG", orientation=None):
+    image = Image.new("RGB", size, "white")
+    out = io.BytesIO()
+    kwargs = {}
+    if orientation:
+        exif = image.getexif()
+        exif[0x0112] = orientation  # rotated phone photo
+        exif[0x0110] = "Test phone"  # camera model: metadata like this (or location) must not be kept
+        kwargs["exif"] = exif
+    image.save(out, fmt, **kwargs)
+    return SimpleUploadedFile(name, out.getvalue(), content_type=f"image/{fmt.lower()}")
+
+
+def recipe_call(**overrides):
+    data = {
+        "is_recipe": True, "name": "Lemon chicken traybake", "kind": "meat", "minutes": 50, "servings": 4,
+        "source": "BBC Good Food magazine, Oct 2026, p. 42", "online_url": "https://tollbit.bbcgoodfood.com/recipes/lemon-chicken",
+        "notes": "", "instructions": ["Heat the oven to 200C.", "Roast everything for 40 min."],
+        "ingredients": [
+            {"name": "Chicken thighs", "quantity": 800, "unit": "g", "category": "meat", "note": "", "check": False},
+            {"name": "Lemons", "quantity": 2, "unit": "pcs", "category": "vegetables", "note": "", "check": True},
+        ],
+    }
+    data.update(overrides)
+    import json
+    from types import SimpleNamespace
+
+    return SimpleNamespace(type="function_call", name="save_recipe", arguments=json.dumps(data), call_id="c1")
+
+
+class PhotoProcessingTests(TestCase):
+    def test_scaled_rotated_and_stripped(self):
+        result = Image.open(io.BytesIO(photos.process(image_file(orientation=6)).read()))
+        self.assertEqual(result.size, (1000, 2000))  # turned upright, longest side 2000
+        self.assertEqual(dict(result.getexif()), {})  # no location or other metadata
+
+    def test_png_becomes_jpeg(self):
+        content = photos.process(image_file("card.png", (400, 300), "PNG"))
+        self.assertEqual(content.name, "card.jpg")
+        self.assertEqual(Image.open(io.BytesIO(content.read())).format, "JPEG")
+
+    def test_not_an_image(self):
+        with self.assertRaisesMessage(ValidationError, "couldn't be read"):
+            photos.process(SimpleUploadedFile("recipe.pdf", b"%PDF-1.4 not an image"))
+
+
+class RecipeFromPhotoTests(TestCase):
+    def setUp(self):
+        self.media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media, ignore_errors=True)
+        for patcher in [
+            override_settings(MEDIA_ROOT=self.media, OPENAI_API_KEY="test-key", AI_MODEL="gpt-5.4-mini"),
+            mock.patch.object(recipe_import, "start", side_effect=lambda job: recipe_import.run(job.pk)),
+            mock.patch.object(planner, "link_works", return_value=True),
+        ]:
+            patcher.enable() if hasattr(patcher, "enable") else patcher.start()
+            self.addCleanup(patcher.disable if hasattr(patcher, "disable") else patcher.stop)
+        self.user = User.objects.create_user(email="parent@example.com")
+        self.client.force_login(self.user)
+
+    def _fake(self, *replies):
+        fake = FakeOpenAI(*replies)
+        patcher = mock.patch.object(planner, "get_client", return_value=fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return fake
+
+    def _upload(self, *files):
+        return self.client.post(reverse("meals:recipe_photo_new"), {"photos": list(files) or [image_file()]})
+
+    def test_read_check_and_save(self):
+        fake = self._fake(reply(SimpleSearch(), recipe_call()))
+        response = self._upload(image_file("p1.jpg"), image_file("p2.jpg"))
+        job = RecipeImport.objects.get()
+        self.assertRedirects(response, reverse("meals:recipe_import", args=[job.pk]))
+        self.assertEqual(job.status, "done", job.error)
+        self.assertEqual((job.web_searches, job.photos.count()), (1, 2))
+        # Both photos went to the AI as images.
+        content = fake.requests[0]["input"][0]["content"]
+        self.assertEqual([c["type"] for c in content], ["input_text", "input_image", "input_image"])
+        self.assertTrue(content[1]["image_url"].startswith("data:image/jpeg;base64,"))
+
+        review = self.client.get(reverse("meals:recipe_import", args=[job.pk]))
+        self.assertContains(review, 'value="Lemon chicken traybake"')
+        self.assertContains(review, "https://www.bbcgoodfood.com/recipes/lemon-chicken")  # tollbit cleaned up
+        self.assertContains(review, "⚠ 1 ingredient to double-check")
+        self.assertContains(review, "Hard to read")
+        self.assertContains(review, "Heat the oven to 200C.\nRoast everything for 40 min.")
+
+        data = {
+            "name": "Lemon chicken traybake", "recipe_url": "https://www.bbcgoodfood.com/recipes/lemon-chicken",
+            "source": "BBC Good Food magazine, Oct 2026, p. 42", "kind": "meat", "minutes": "50", "servings": "4",
+            "instructions": "Heat the oven to 200C.\nRoast everything for 40 min.", "notes": "", "status": "try",
+            "ingredients-TOTAL_FORMS": "3", "ingredients-INITIAL_FORMS": "0",
+            "ingredients-MIN_NUM_FORMS": "0", "ingredients-MAX_NUM_FORMS": "1000",
+            "ingredients-0-name": "Chicken thighs", "ingredients-0-quantity": "800", "ingredients-0-unit": "g",
+            "ingredients-0-category": "meat", "ingredients-0-note": "",
+            "ingredients-1-name": "Lemons", "ingredients-1-quantity": "3", "ingredients-1-unit": "pcs",
+            "ingredients-1-category": "vegetables", "ingredients-1-note": "",
+            "ingredients-2-name": "", "ingredients-2-quantity": "", "ingredients-2-unit": "",
+            "ingredients-2-category": "other", "ingredients-2-note": "",
+        }
+        response = self.client.post(reverse("meals:recipe_import", args=[job.pk]), data)
+        dish = Dish.objects.get(name="Lemon chicken traybake")
+        self.assertRedirects(response, reverse("meals:recipe", args=[dish.pk]))
+        self.assertEqual((dish.status, dish.source, dish.steps[0]), ("try", "BBC Good Food magazine, Oct 2026, p. 42", "Heat the oven to 200C."))
+        self.assertEqual(sorted(dish.ingredients.values_list("name", "quantity")), [("Chicken thighs", 800), ("Lemons", 3)])
+        self.assertEqual(dish.photos.count(), 2)
+        job.refresh_from_db()
+        self.assertEqual((job.status, job.dish), ("saved", dish))
+        # Coming back to the import goes to the recipe.
+        self.assertRedirects(self.client.get(reverse("meals:recipe_import", args=[job.pk])), reverse("meals:recipe", args=[dish.pk]))
+
+        page = self.client.get(reverse("meals:recipe", args=[dish.pk]))
+        self.assertContains(page, "<li>Roast everything for 40 min.</li>")
+        self.assertContains(page, "📷 BBC Good Food magazine, Oct 2026, p. 42")
+        self.assertContains(page, reverse("meals:photo", args=[dish.photos.first().pk]))
+
+    def test_not_a_recipe_and_retry(self):
+        self._fake(reply(recipe_call(is_recipe=False)), reply(recipe_call()))
+        self._upload()
+        job = RecipeImport.objects.get()
+        self.assertEqual(job.status, "failed")
+        page = self.client.get(reverse("meals:recipe_import", args=[job.pk]))
+        self.assertContains(page, "don&#x27;t seem to show a recipe")
+        self.assertContains(page, "Fill it in yourself")
+        self.client.post(reverse("meals:recipe_import_retry", args=[job.pk]))
+        job.refresh_from_db()
+        self.assertEqual(job.status, "done")
+
+    def test_fill_in_by_hand_after_a_failure(self):
+        self._fake(reply(message("I can't read this", refusal=True)))
+        self._upload()
+        job = RecipeImport.objects.get()
+        page = self.client.get(reverse("meals:recipe_import", args=[job.pk]) + "?manual=1")
+        self.assertContains(page, "Check the recipe")
+        self.assertContains(page, 'name="instructions"')
+
+    def test_upload_validation(self):
+        self._fake()
+        response = self.client.post(reverse("meals:recipe_photo_new"), {"photos": [image_file(f"p{i}.jpg", (50, 50)) for i in range(7)]}, follow=True)
+        self.assertContains(response, "At most 6 photos")
+        response = self.client.post(reverse("meals:recipe_photo_new"), {"photos": [SimpleUploadedFile("x.txt", b"hello")]}, follow=True)
+        self.assertContains(response, "couldn&#x27;t be read")
+        self.assertFalse(RecipeImport.objects.exists())
+        self.assertFalse(RecipePhoto.objects.exists())
+
+    @override_settings(OPENAI_API_KEY="")
+    def test_needs_the_api_key(self):
+        response = self.client.get(reverse("meals:recipe_photo_new"))
+        self.assertContains(response, "isn't set up yet")
+
+    def test_photos_are_private(self):
+        dish = Dish.objects.create(name="Soup")
+        self.client.post(reverse("meals:recipe_photo_add", args=[dish.pk]), {"photos": [image_file(size=(400, 300))]})
+        photo = dish.photos.get()
+        response = self.client.get(reverse("meals:photo", args=[photo.pk]))
+        self.assertEqual((response.status_code, response["Content-Type"]), (200, "image/jpeg"))
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse("meals:photo", args=[photo.pk])).status_code, 302)
+
+    def test_removing_a_photo_deletes_the_file(self):
+        dish = Dish.objects.create(name="Soup")
+        self.client.post(reverse("meals:recipe_photo_add", args=[dish.pk]), {"photos": [image_file(size=(400, 300))]})
+        photo = dish.photos.get()
+        path = photo.image.path
+        self.client.post(reverse("meals:photo_delete", args=[photo.pk]))
+        self.assertFalse(RecipePhoto.objects.exists())
+        import os
+        self.assertFalse(os.path.exists(path))
+
+    def test_cards_open_recipes_the_app_holds(self):
+        dish = Dish.objects.create(name="Gran's stew", instructions="Brown the meat.\nSimmer 2 hours.", source="Gran's notebook")
+        PlannedMeal.objects.create(date=date(2026, 10, 5), dish=dish)
+        page = self.client.get(reverse("meals:menu_of", args=["2026-10-05"]))
+        self.assertContains(page, f'<a class="meal-link" href="{reverse("meals:recipe", args=[dish.pk])}">')
+        self.assertContains(page, "📷 Gran&#x27;s notebook")
+        dish.ingredients.create(name="Beef", quantity=500, unit="g", category="meat")
+        shop = self.client.get(reverse("meals:shopping_of", args=["2026-10-05"]))
+        self.assertContains(shop, f'<a class="badge use" href="{reverse("meals:recipe", args=[dish.pk])}"')
+
+    def test_ai_cost_is_kept(self):
+        self._fake(reply(recipe_call()))
+        self._upload()
+        job = RecipeImport.objects.get()
+        # 1000 input and 500 output tokens at $0.75 / $4.50 per million.
+        self.assertEqual(str(job.cost), "0.0030")
+
+
+class SimpleSearch:
+    type = "web_search_call"
+    status = "completed"

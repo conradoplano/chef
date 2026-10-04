@@ -19,6 +19,8 @@
       {% for use in item.uses %}
         {% if use.meal.dish.recipe_url %}
           <a class="badge use" href="{{ use.meal.dish.recipe_url }}" target="_blank" rel="noopener" title="{{ use.label }}"><span class="use-name">{{ use.label }}</span> ↗</a>
+        {% elif use.meal.dish.has_own_recipe %}
+          <a class="badge use" href="{% url 'meals:recipe' use.meal.dish.pk %}" title="{{ use.label }}"><span class="use-name">{{ use.label }}</span> 📖</a>
         {% else %}
           <span class="badge use" title="{{ use.label }}"><span class="use-name">{{ use.label }}</span></span>
         {% endif %}

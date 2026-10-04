@@ -1,16 +1,21 @@
-"""The recipe binder: favourites, recipes we want to try, and every dish we have cooked."""
+"""The recipe binder: favourites, recipes we want to try, every dish we have cooked, and recipes from photos."""
+from django import forms
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Max, Q
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.db.models import Count, Max, Prefetch, Q
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
-from .. import schedule
-from ..forms import AddToMenuForm, RecipeForm
-from ..models import Dish, FamilyMember, Feedback, PlannedMeal
+from .. import photos, planner, recipe_import, schedule
+from ..forms import UNITS, AddToMenuForm, IngredientForm, RecipeForm
+from ..models import Dish, FamilyMember, Feedback, Ingredient, PlannedMeal, RecipeImport, RecipePhoto
 from .common import safe_next
 
 FILTERS = [
@@ -23,7 +28,7 @@ FILTERS = [
 def with_history(dishes):
     """Adds times cooked, last cooked and the latest feedback to each dish."""
     dishes = list(
-        dishes.annotate(
+        dishes.prefetch_related(Prefetch("photos", queryset=RecipePhoto.objects.only("pk", "dish"))).annotate(
             cooked=Count("planned", filter=Q(planned__leftovers=False)),
             last_cooked=Max("planned__date", filter=Q(planned__leftovers=False, planned__date__lte=timezone.localdate())),
         )
@@ -129,3 +134,150 @@ def recipe_status(request, pk):
         }[status])
     anchor = request.POST.get("anchor", "")
     return redirect((safe_next(request) or reverse("meals:recipe", args=[dish.pk])) + (f"#{anchor}" if anchor.isidentifier() or anchor.startswith("meal-") else ""))
+
+
+# --- recipes from photos ----------------------------------------------------------------
+
+
+def save_photos(request, dish=None, job=None):
+    """Stores the uploaded photos (scaled down). Returns (photos, errors)."""
+    files = request.FILES.getlist("photos")
+    errors = []
+    if not files:
+        errors.append("Choose at least one photo.")
+    if len(files) > settings.RECIPE_PHOTOS_PER_IMPORT:
+        errors.append(f"At most {settings.RECIPE_PHOTOS_PER_IMPORT} photos at a time.")
+    processed = []
+    for upload in files[: settings.RECIPE_PHOTOS_PER_IMPORT]:
+        try:
+            processed.append(photos.process(upload))
+        except ValidationError as exc:
+            errors.extend(exc.messages)
+    if errors:
+        return [], errors
+    saved = []
+    for image in processed:
+        photo = RecipePhoto(dish=dish, recipe_import=job, uploaded_by=request.user)
+        photo.image.save(image.name, image, save=True)
+        saved.append(photo)
+    return saved, []
+
+
+@login_required
+def recipe_photo_new(request):
+    """Photos of a recipe, e.g. a magazine page, to be read by AI."""
+    if request.method == "POST":
+        if not planner.enabled():
+            messages.error(request, "Reading recipes with AI isn't set up yet (OPENAI_API_KEY is missing).")
+            return redirect("meals:recipe_photo_new")
+        job = RecipeImport.objects.create(created_by=request.user)
+        saved, errors = save_photos(request, job=job)
+        if errors:
+            job.delete()
+            for error in errors:
+                messages.error(request, error)
+        else:
+            recipe_import.start(job)
+            return redirect("meals:recipe_import", pk=job.pk)
+    return render(request, "meals/recipe_photo.html", {"ai_enabled": planner.enabled()})
+
+
+def import_formset_class(count):
+    return forms.inlineformset_factory(Dish, Ingredient, form=IngredientForm, extra=count, can_delete=True)
+
+
+@login_required
+def recipe_import_view(request, pk):
+    recipe_import.expire_stale()
+    job = get_object_or_404(RecipeImport, pk=pk)
+    if job.status == RecipeImport.Status.SAVED and job.dish:
+        return redirect("meals:recipe", pk=job.dish.pk)
+    manual = request.GET.get("manual") == "1"
+    context = {"job": job, "photos": job.photos.all(), "manual": manual}
+    if not job.finished or (job.status == RecipeImport.Status.FAILED and not manual):
+        return render(request, "meals/recipe_import.html", context)
+
+    # Check what the AI read, then save it as a recipe.
+    result = job.result if job.status == RecipeImport.Status.DONE else {}
+    ingredients = result.get("ingredients", [])
+    initial = {k: result.get(k) for k in ("name", "kind", "minutes", "servings", "source", "recipe_url", "notes", "instructions") if result.get(k) is not None}
+    form = RecipeForm(request.POST or None, initial={"status": Dish.Status.TRY, "servings": 4, **initial})
+    Formset = import_formset_class(len(ingredients) + 1)
+    formset = Formset(request.POST or None, instance=Dish(), initial=ingredients)
+    if request.method == "POST" and form.is_valid() and formset.is_valid():
+        with transaction.atomic():
+            dish = form.save(commit=False)
+            if dish.status:
+                dish.saved_at = timezone.now()
+            dish.save()
+            formset.instance = dish
+            formset.save()
+            job.photos.update(dish=dish)
+            job.dish, job.status = dish, RecipeImport.Status.SAVED
+            job.save(update_fields=["dish", "status"])
+        messages.success(request, f"Saved {dish}.")
+        return redirect("meals:recipe", pk=dish.pk)
+    context.update(
+        form=form,
+        formset=formset,
+        checks=sum(1 for i in ingredients if i.get("check")),
+        units=UNITS,
+        names=sorted(set(Ingredient.objects.values_list("name", flat=True)), key=str.lower),
+    )
+    return render(request, "meals/recipe_import.html", context)
+
+
+@login_required
+@require_POST
+def recipe_import_retry(request, pk):
+    job = get_object_or_404(RecipeImport, pk=pk, status=RecipeImport.Status.FAILED)
+    job.status, job.error = RecipeImport.Status.PENDING, ""
+    job.save(update_fields=["status", "error"])
+    RecipeImport.objects.filter(pk=job.pk).update(created_at=timezone.now())  # a fresh time budget
+    recipe_import.start(job)
+    return redirect("meals:recipe_import", pk=job.pk)
+
+
+@login_required
+def recipe_import_status(request, pk):
+    recipe_import.expire_stale()
+    job = get_object_or_404(RecipeImport, pk=pk)
+    # The review page is the same address, so "done" simply reloads it.
+    return JsonResponse({
+        "status": job.status, "finished": job.finished, "error": job.error,
+        "url": reverse("meals:recipe_import", args=[job.pk]),
+    })
+
+
+@login_required
+def recipe_photo_file(request, pk):
+    """Photos are private: only shown to logged-in family members."""
+    photo = get_object_or_404(RecipePhoto, pk=pk)
+    try:
+        response = FileResponse(photo.image.open("rb"), content_type="image/jpeg")
+    except FileNotFoundError:
+        raise Http404("Photo not found")
+    response["Cache-Control"] = "private, max-age=86400"
+    return response
+
+
+@login_required
+@require_POST
+def recipe_photo_add(request, pk):
+    dish = get_object_or_404(Dish, pk=pk)
+    saved, errors = save_photos(request, dish=dish)
+    for error in errors:
+        messages.error(request, error)
+    if saved:
+        messages.success(request, f"Added {len(saved)} photo{'s' if len(saved) != 1 else ''}.")
+    return redirect(reverse("meals:recipe", args=[dish.pk]) + "#photos")
+
+
+@login_required
+@require_POST
+def recipe_photo_delete(request, pk):
+    photo = get_object_or_404(RecipePhoto, pk=pk, dish__isnull=False)
+    dish_pk = photo.dish_id
+    photo.delete()
+    messages.success(request, "Photo removed.")
+    return redirect(reverse("meals:recipe", args=[dish_pk]) + "#photos")

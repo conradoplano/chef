@@ -1,4 +1,5 @@
-<div class="ingredient-row card">
+<div class="ingredient-row card{% if form.initial.check %} needs-check{% endif %}">
+  {% if form.initial.check %}<p class="check-note small">⚠ Hard to read – check against the photo</p>{% endif %}
   {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
   {{ form.non_field_errors }}
   <div class="ing-name">{{ form.name }}{{ form.name.errors }}</div>

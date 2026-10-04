@@ -105,7 +105,7 @@ def build(week):
     meals = (
         PlannedMeal.objects.filter(date__range=(week, week + timedelta(days=6)), leftovers=False)
         .select_related("dish")
-        .prefetch_related("dish__ingredients")
+        .prefetch_related("dish__ingredients", "dish__photos")
     )
     merged = {}
     amounts = {}
