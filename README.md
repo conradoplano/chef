@@ -20,8 +20,8 @@ Phone screens with made-up demo data.
     <td align="center"><img src="docs/screenshots/create-menu.jpg" width="250" alt="Create menu: which meals and who eats them"><br><sub><b>Create menu</b> – who eats when</sub></td>
   </tr>
   <tr>
+    <td align="center"><img src="docs/screenshots/add-recipe.jpg" width="250" alt="Add a recipe from a link, photos or by typing it in"><br><sub><b>Add a recipe</b> – link, photos or typed</sub></td>
     <td align="center"><img src="docs/screenshots/settings.jpg" width="250" alt="Settings: family, usual week, rules and household"><br><sub><b>Settings</b> – family, rules, household</sub></td>
-    <td></td>
     <td></td>
   </tr>
 </table>
@@ -36,9 +36,10 @@ Phone screens with made-up demo data.
 - **Recipes** – the recipe binder: ★ favourites, recipes we found and want to try, and every dish cooked, with
   history and feedback. Add recipes, add them to a menu, star a dish from any meal card. A recipe to try that
   everyone likes becomes a favourite; AI planning reuses favourites and works in recipes to try.
-  **📷 From photo** reads a recipe from photos (magazine, cookbook, handwritten card) with AI: ingredients,
-  method, source, and a link if it's also online. You check everything before it's saved. Recipes without a
-  web page keep their method and photos in the app.
+  **+ Add recipe** offers three ways: **🔗 from a link** (the page's recipe data or text is read by AI; sites
+  that block downloads are opened by the AI's web search; on Android, *Share → Chef* fills in the link),
+  **📷 from photos** (magazine, cookbook, handwritten card; plus a link if it's also online), or **✍️ typed in**.
+  You check everything the AI read before it's saved. Recipes without a web page keep their method and photos.
 - **Settings** (top right) – family members (likes, dislikes, allergies), the usual week (which meals, who eats),
   planning rules and household settings. All of it, plus past menus and feedback, goes into AI planning.
 
@@ -62,6 +63,7 @@ shopping list follows. See `meals/planner.py`.
 - Recipe links are cleaned up (e.g. `tollbit.` hosts) and dropped if the page doesn't exist.
 - The rest of the family gets an email when a menu is created or changed (`MENU_EMAILS`, links use
   `SITE_URL` or the first `CSRF_TRUSTED_ORIGINS` entry).
+- Recipe links are only fetched from public web addresses, never from devices on the home network.
 - Recipe photos are scaled down on the phone and again on the server (max 2000 px, metadata removed), stored
   in `data/media` and only shown to logged-in users. Reading one costs about a cent with `gpt-5.4-mini`.
 - Each request's prompt, raw answer, token counts, web searches and cost are in the admin (Menu requests).

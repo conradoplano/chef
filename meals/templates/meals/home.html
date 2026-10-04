@@ -11,7 +11,7 @@
   </div>
 
   {% if ready_imports %}
-    <a class="flash planning-bar" href="{% url 'meals:recipes' %}">📷 {{ ready_imports }} recipe{{ ready_imports|pluralize }} from photos ready to check <strong>›</strong></a>
+    <a class="flash planning-bar" href="{% url 'meals:recipes' %}">📖 {{ ready_imports }} new recipe{{ ready_imports|pluralize }} ready to check <strong>›</strong></a>
   {% endif %}
 
   <section class="day-group today">

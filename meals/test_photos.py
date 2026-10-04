@@ -168,7 +168,8 @@ class RecipeFromPhotoTests(TestCase):
     @override_settings(OPENAI_API_KEY="")
     def test_needs_the_api_key(self):
         response = self.client.get(reverse("meals:recipe_photo_new"))
-        self.assertContains(response, "isn't set up yet")
+        self.assertRedirects(response, reverse("meals:recipe_add"))
+        self.assertContains(self.client.get(reverse("meals:recipe_add")), "isn't set up yet")
 
     def test_photos_are_private(self):
         dish = Dish.objects.create(name="Soup")
@@ -235,7 +236,7 @@ class UnfinishedImportTests(TestCase):
         failed = self._job("failed", error="Blurry")
         saved = self._job("saved", dish=Dish.objects.create(name="Done already"))
         page = self.client.get(reverse("meals:recipes"))
-        self.assertContains(page, "📷 From photos")
+        self.assertContains(page, "Being added")
         self.assertContains(page, "Butter bean bake")
         self.assertContains(page, "Ready to check ›")
         self.assertContains(page, "Reading…")
@@ -249,7 +250,7 @@ class UnfinishedImportTests(TestCase):
     def test_home_reminds_when_ready(self):
         self.assertNotContains(self.client.get(reverse("meals:home")), "ready to check")
         self._job("done", result={"name": "Bake"})
-        self.assertContains(self.client.get(reverse("meals:home")), "1 recipe from photos ready to check")
+        self.assertContains(self.client.get(reverse("meals:home")), "1 new recipe ready to check")
 
     def test_discard_removes_photos_and_files(self):
         job = self._job("done", result={"name": "Bake"})
@@ -265,3 +266,113 @@ class UnfinishedImportTests(TestCase):
         job = self._job("saved", dish=Dish.objects.create(name="Kept"))
         self.assertEqual(self.client.post(reverse("meals:recipe_import_discard", args=[job.pk])).status_code, 404)
         self.assertEqual(RecipePhoto.objects.count(), 1)
+
+
+PAGE_WITH_RECIPE_DATA = """<html><head><title>Pad thai</title>
+<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [
+  {"@type": "WebSite", "name": "Good Food"},
+  {"@type": ["Recipe"], "name": "Easy pad thai", "recipeYield": "4", "totalTime": "PT30M",
+   "recipeIngredient": ["200g rice noodles", "2 eggs"], "recipeInstructions": [{"@type": "HowToStep", "text": "Soak the noodles."}],
+   "image": "https://example.com/huge.jpg", "review": [{"text": "lots of reviews"}]}]}</script>
+</head><body><p>Lots of chatter about my holiday.</p></body></html>"""
+
+
+class PageReadingTests(TestCase):
+    def test_uses_the_embedded_recipe_data(self):
+        with mock.patch.object(recipe_import, "fetch_page", return_value=PAGE_WITH_RECIPE_DATA):
+            text = recipe_import.page_content("https://example.com/pad-thai")[0]["text"]
+        self.assertIn("schema.org recipe data", text)
+        self.assertIn('"recipeIngredient": ["200g rice noodles", "2 eggs"]', text)
+        self.assertNotIn("holiday", text)  # no page chatter
+        self.assertNotIn("reviews", text)  # only the recipe's own fields
+
+    def test_falls_back_to_the_page_text(self):
+        html = "<html><body><script>var x=1;</script><h1>Gran's soup</h1><p>Boil   the water.</p></body></html>"
+        with mock.patch.object(recipe_import, "fetch_page", return_value=html):
+            text = recipe_import.page_content("https://example.com/soup")[0]["text"]
+        self.assertIn("Text of the page:\nGran's soup\nBoil the water.", text)
+        self.assertNotIn("var x", text)
+
+    def test_blocked_pages_are_opened_with_web_search(self):
+        with mock.patch.object(recipe_import, "fetch_page", return_value=""):
+            text = recipe_import.page_content("https://blocked.example/r")[0]["text"]
+        self.assertIn("couldn't be downloaded. Open it with web search", text)
+
+    def test_only_public_addresses_are_fetched(self):
+        for host in ["localhost", "127.0.0.1", "192.168.1.1", "10.0.0.5", "nas.local-does-not-exist.invalid"]:
+            self.assertFalse(recipe_import.is_public(host), host)
+        with mock.patch.object(recipe_import, "build_opener") as opener:
+            self.assertEqual(recipe_import.fetch_page("http://192.168.1.1/admin"), "")
+        opener.assert_not_called()
+
+
+@override_settings(OPENAI_API_KEY="test-key", AI_MODEL="gpt-5.4-mini")
+class RecipeFromLinkTests(TestCase):
+    def setUp(self):
+        for patcher in [
+            mock.patch.object(recipe_import, "start", side_effect=lambda job: recipe_import.run(job.pk)),
+            mock.patch.object(recipe_import, "fetch_page", return_value=PAGE_WITH_RECIPE_DATA),
+            mock.patch.object(planner, "link_works", return_value=True),
+        ]:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.client.force_login(User.objects.create_user(email="parent@example.com"))
+
+    def _fake(self, *replies):
+        fake = FakeOpenAI(*replies)
+        patcher = mock.patch.object(planner, "get_client", return_value=fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return fake
+
+    def test_add_page_offers_three_ways(self):
+        page = self.client.get(reverse("meals:recipe_add"))
+        for text in ["🔗 From a link", "📷 From photos", "✍️ Type it in"]:
+            self.assertContains(page, text)
+        self.assertContains(self.client.get(reverse("meals:recipes")), f'href="{reverse("meals:recipe_add")}">+ Add recipe</a>')
+
+    def test_shared_links_are_filled_in(self):
+        page = self.client.get(reverse("meals:recipe_add") + "?title=Pad+thai&text=Look+at+this+https%3A%2F%2Fexample.com%2Fpad-thai%2F+yum")
+        self.assertContains(page, 'value="https://example.com/pad-thai/"')
+        manifest = self.client.get(reverse("core:manifest")).json()
+        self.assertEqual(manifest["share_target"]["action"], reverse("meals:recipe_add"))
+
+    def test_read_check_and_save(self):
+        fake = self._fake(reply(recipe_call(name="Easy pad thai", source="Some magazine", online_url="https://other.example/x")))
+        response = self.client.post(reverse("meals:recipe_link_new"), {"url": "example.com/pad-thai"})
+        job = RecipeImport.objects.get()
+        self.assertRedirects(response, reverse("meals:recipe_import", args=[job.pk]))
+        self.assertEqual((job.url, job.status), ("https://example.com/pad-thai", "done"))
+        self.assertIn("schema.org recipe data", fake.requests[0]["input"][0]["content"][0]["text"])
+        # The link is the recipe's link; no source line, no other link.
+        self.assertEqual((job.result["recipe_url"], job.result["source"]), ("https://example.com/pad-thai", ""))
+        review = self.client.get(reverse("meals:recipe_import", args=[job.pk]))
+        self.assertContains(review, "copied the recipe from the page")
+        self.assertContains(review, 'value="Easy pad thai"')
+
+    def test_known_link_goes_to_the_recipe(self):
+        dish = Dish.objects.create(name="Pad thai", recipe_url="https://www.example.com/pad-thai/")
+        response = self.client.post(reverse("meals:recipe_link_new"), {"url": "https://example.com/pad-thai"})
+        self.assertRedirects(response, reverse("meals:recipe", args=[dish.pk]))
+        self.assertFalse(RecipeImport.objects.exists())
+
+    def test_link_being_read_is_not_read_twice(self):
+        job = RecipeImport.objects.create(url="https://example.com/pad-thai", status="running")
+        response = self.client.post(reverse("meals:recipe_link_new"), {"url": "https://example.com/pad-thai/"})
+        self.assertRedirects(response, reverse("meals:recipe_import", args=[job.pk]))
+        self.assertEqual(RecipeImport.objects.count(), 1)
+
+    def test_not_a_web_address(self):
+        response = self.client.post(reverse("meals:recipe_link_new"), {"url": "just some words"}, follow=True)
+        self.assertContains(response, "doesn&#x27;t look like a web address")
+
+    def test_page_without_a_recipe(self):
+        self._fake(reply(recipe_call(is_recipe=False)))
+        self.client.post(reverse("meals:recipe_link_new"), {"url": "https://example.com/about"})
+        self.assertEqual(RecipeImport.objects.get().error, "No recipe was found on that page.")
+
+    def test_listed_while_being_added(self):
+        RecipeImport.objects.create(url="https://www.example.com/pad-thai", status="running")
+        page = self.client.get(reverse("meals:recipes"))
+        self.assertContains(page, "example.com/pad-thai")
+        self.assertContains(page, "🔗")

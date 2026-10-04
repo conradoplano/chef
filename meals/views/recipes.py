@@ -1,4 +1,8 @@
-"""The recipe binder: favourites, recipes we want to try, every dish we have cooked, and recipes from photos."""
+"""The recipe binder: favourites, recipes we want to try, every dish we have cooked, and adding recipes
+from a link, photos or by hand."""
+import re
+from urllib.parse import urlsplit
+
 from django import forms
 from django.conf import settings
 from django.contrib import messages
@@ -165,23 +169,73 @@ def save_photos(request, dish=None, job=None):
     return saved, []
 
 
+URL_IN_TEXT = re.compile(r"https?://\S+")
+
+
+def shared_url(request):
+    """A recipe address passed in, e.g. by sharing a page to the app (Android): ?url= or inside ?text=."""
+    for value in (request.GET.get("url", ""), request.GET.get("text", "")):
+        match = URL_IN_TEXT.search(value)
+        if match:
+            return match.group(0).rstrip(").,;")
+    return ""
+
+
+@login_required
+def recipe_add(request):
+    """Three ways to add a recipe: from a link, from photos, or typed in."""
+    return render(request, "meals/recipe_add.html", {"ai_enabled": planner.enabled(), "url": shared_url(request)})
+
+
+def same_page(a, b):
+    def key(url):
+        parts = urlsplit(url.strip().lower())
+        return (parts.hostname or "").removeprefix("www.").removeprefix("tollbit."), parts.path.rstrip("/")
+    return key(a) == key(b)
+
+
+@login_required
+@require_POST
+def recipe_link_new(request):
+    """A recipe page on the web, to be read by AI."""
+    field = forms.URLField(max_length=500, assume_scheme="https")
+    try:
+        url = field.clean(request.POST.get("url", "").strip())
+    except ValidationError:
+        messages.error(request, "That doesn't look like a web address.")
+        return redirect("meals:recipe_add")
+    known = next((d for d in Dish.objects.exclude(recipe_url="") if same_page(d.recipe_url, url)), None)
+    if known:
+        messages.info(request, f"That recipe is already in your binder: {known}.")
+        return redirect("meals:recipe", pk=known.pk)
+    waiting = next((j for j in unsaved_imports().exclude(url="") if same_page(j.url, url)), None)
+    if waiting:
+        return redirect("meals:recipe_import", pk=waiting.pk)
+    if not planner.enabled():
+        messages.error(request, "Reading recipes with AI isn't set up yet (OPENAI_API_KEY is missing).")
+        return redirect("meals:recipe_add")
+    job = RecipeImport.objects.create(url=url, created_by=request.user)
+    recipe_import.start(job)
+    return redirect("meals:recipe_import", pk=job.pk)
+
+
 @login_required
 def recipe_photo_new(request):
-    """Photos of a recipe, e.g. a magazine page, to be read by AI."""
-    if request.method == "POST":
-        if not planner.enabled():
-            messages.error(request, "Reading recipes with AI isn't set up yet (OPENAI_API_KEY is missing).")
-            return redirect("meals:recipe_photo_new")
-        job = RecipeImport.objects.create(created_by=request.user)
-        saved, errors = save_photos(request, job=job)
-        if errors:
-            job.delete()
-            for error in errors:
-                messages.error(request, error)
-        else:
-            recipe_import.start(job)
-            return redirect("meals:recipe_import", pk=job.pk)
-    return render(request, "meals/recipe_photo.html", {"ai_enabled": planner.enabled()})
+    """Photos of a recipe, e.g. a magazine page, to be read by AI. The form is on the add page."""
+    if request.method != "POST":
+        return redirect("meals:recipe_add")
+    if not planner.enabled():
+        messages.error(request, "Reading recipes with AI isn't set up yet (OPENAI_API_KEY is missing).")
+        return redirect("meals:recipe_add")
+    job = RecipeImport.objects.create(created_by=request.user)
+    saved, errors = save_photos(request, job=job)
+    if errors:
+        job.delete()
+        for error in errors:
+            messages.error(request, error)
+        return redirect("meals:recipe_add")
+    recipe_import.start(job)
+    return redirect("meals:recipe_import", pk=job.pk)
 
 
 def import_formset_class(count):
@@ -297,5 +351,5 @@ def recipe_import_discard(request, pk):
     for photo in job.photos.filter(dish__isnull=True):
         photo.delete()  # also removes the file
     job.delete()
-    messages.success(request, "Discarded the photos.")
+    messages.success(request, "Discarded.")
     return redirect("meals:recipes")

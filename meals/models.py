@@ -373,7 +373,7 @@ class MenuRequest(models.Model):
 
 
 class RecipeImport(models.Model):
-    """Photos of a recipe (e.g. from a magazine) being read by AI, then checked by the family."""
+    """A recipe from photos (e.g. a magazine page) or a web page, read by AI, then checked by the family."""
 
     class Status(models.TextChoices):
         PENDING = "pending", "Waiting"
@@ -383,6 +383,8 @@ class RecipeImport(models.Model):
         SAVED = "saved", "Saved"
 
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    # A recipe is read either from photos (RecipePhoto rows) or from a web page at this address.
+    url = models.URLField("recipe link", max_length=500, blank=True)
     result = models.JSONField(default=dict, blank=True, help_text="What the AI read, before checking.")
     error = models.TextField(blank=True)
     dish = models.ForeignKey(Dish, null=True, blank=True, on_delete=models.SET_NULL, related_name="imports")

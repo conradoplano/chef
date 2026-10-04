@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Add a recipe · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <p class="small"><a href="{% url 'meals:recipes' %}">‹ Recipes</a></p>
+  <h2>Add a recipe</h2>
+  {% if not ai_enabled %}
+    <div class="flash">Reading links and photos needs AI, which isn't set up yet (<code>OPENAI_API_KEY</code>). You can still type recipes in.</div>
+  {% endif %}
+
+  <section class="card add-way">
+    <h3>🔗 From a link</h3>
+    <p class="muted small">Paste the address of a recipe page. Ingredients, method and times are copied in for you to check.</p>
+    <form method="post" action="{% url 'meals:recipe_link_new' %}" class="add-link">
+      {% csrf_token %}
+      <input type="url" name="url" value="{{ url }}" placeholder="https://…" inputmode="url" autocomplete="off" required aria-label="Recipe address"{% if url %} autofocus{% endif %}>
+      <button type="submit"{% if not ai_enabled %} disabled{% endif %}>Get recipe</button>
+    </form>
+  </section>
+
+  <section class="card add-way">
+    <h3>📷 From photos</h3>
+    <p class="muted small">A magazine page, a cookbook or a handwritten card – up to 6 photos, e.g. both pages of a magazine recipe.</p>
+    <form method="post" action="{% url 'meals:recipe_photo_new' %}" enctype="multipart/form-data" class="add-photo">
+      {% csrf_token %}
+      <input type="file" name="photos" accept="image/*" multiple data-resize required aria-label="Recipe photos">
+      <button type="submit"{% if not ai_enabled %} disabled{% endif %}>Read photos</button>
+    </form>
+  </section>
+
+  <a class="card add-way add-manual" href="{% url 'meals:recipe_new' %}">
+    <span><h3>✍️ Type it in</h3><span class="muted small">Grandma's recipe, or one you know by heart.</span></span>
+    <span aria-hidden="true">›</span>
+  </a>
+{% endblock %}

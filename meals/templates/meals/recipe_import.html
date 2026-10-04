@@ -1,9 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Recipe from a photo · {{ site_name }}{% endblock %}
+{% block title %}Add a recipe · {{ site_name }}{% endblock %}
 
 {% block content %}
   <p class="small"><a href="{% url 'meals:recipes' %}">‹ Recipes</a></p>
+  {% if job.url %}
+    <p class="small import-source">🔗 <a href="{{ job.url }}" target="_blank" rel="noopener">{{ job.url|cut:"https://"|cut:"http://"|truncatechars:60 }}</a></p>
+  {% endif %}
   {% if photos %}
     <div class="photo-strip">
       {% for p in photos %}<a href="{% url 'meals:photo' p.pk %}" target="_blank"><img src="{% url 'meals:photo' p.pk %}" alt="Recipe photo {{ forloop.counter }}"></a>{% endfor %}
@@ -14,7 +17,7 @@
     <div class="card center planning" id="planning" data-status-url="{% url 'meals:recipe_import_status' job.pk %}">
       <div class="spinner" aria-hidden="true">📖</div>
       <h2>Reading the recipe…</h2>
-      <p class="muted">Copying ingredients and method, and looking for it online. This usually takes under a minute – you can leave this page and find it again under Recipes.</p>
+      <p class="muted">Copying ingredients and method{% if not job.url %}, and looking for it online{% endif %}. This usually takes under a minute – you can leave this page and find it again under Recipes.</p>
     </div>
   {% elif job.status == "failed" and not manual %}
     <div class="card center planning">
@@ -27,7 +30,7 @@
   {% else %}
     <h2>Check the recipe</h2>
     {% if job.status == "done" %}
-      <p class="muted">The AI read the photos{% if form.initial.recipe_url %} and found it online{% endif %}. Check it against the photos, especially quantities{% if checks %} – <strong class="warn">⚠ {{ checks }} ingredient{{ checks|pluralize }} to double-check</strong>{% endif %}.</p>
+      <p class="muted">{% if job.url %}The AI copied the recipe from the page. Check it, especially quantities{% else %}The AI read the photos{% if form.initial.recipe_url %} and found it online{% endif %}. Check it against the photos, especially quantities{% endif %}{% if checks %} – <strong class="warn">⚠ {{ checks }} ingredient{{ checks|pluralize }} to double-check</strong>{% endif %}.</p>
     {% endif %}
     <form method="post" class="stack" id="ingredients">
       {% csrf_token %}

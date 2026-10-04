@@ -4,6 +4,7 @@ from django.conf import settings
 from django.db import connection
 from django.http import HttpResponse, JsonResponse
 from django.templatetags.static import static
+from django.urls import reverse
 from django.views.decorators.cache import cache_control
 
 
@@ -33,6 +34,11 @@ def manifest(request):
             {"src": static("icons/icon-512.png"), "sizes": "512x512", "type": "image/png"},
             {"src": static("icons/icon-512.png"), "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
         ],
+        "share_target": {
+            "action": reverse("meals:recipe_add"),
+            "method": "GET",
+            "params": {"title": "title", "text": "text", "url": "url"},
+        },
     }
     return JsonResponse(data, content_type="application/manifest+json")
 

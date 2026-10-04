@@ -5,21 +5,18 @@
 {% block content %}
   <div class="line section-head">
     <h2>📖 Recipes</h2>
-    <span class="add-buttons">
-      <a class="btn ghost small" href="{% url 'meals:recipe_photo_new' %}">📷 From photo</a>
-      <a class="btn small" href="{% url 'meals:recipe_new' %}">+ Add</a>
-    </span>
+    <a class="btn small" href="{% url 'meals:recipe_add' %}">+ Add recipe</a>
   </div>
 
   {% if imports %}
     <section class="card imports">
-      <h3>📷 From photos</h3>
+      <h3>Being added</h3>
       {% for job in imports %}
         <div class="import-row">
           <a class="import-link" href="{% url 'meals:recipe_import' job.pk %}">
-            {% with photo=job.photos.all.0 %}{% if photo %}<img src="{% url 'meals:photo' photo.pk %}" alt="" loading="lazy">{% endif %}{% endwith %}
+            {% with photo=job.photos.all.0 %}{% if photo %}<img src="{% url 'meals:photo' photo.pk %}" alt="" loading="lazy">{% else %}<span class="import-icon" aria-hidden="true">🔗</span>{% endif %}{% endwith %}
             <span>
-              <strong>{{ job.result.name|default:"Recipe from photos" }}</strong>
+              <strong>{% if job.result.name %}{{ job.result.name }}{% elif job.url %}{{ job.url|cut:"https://"|cut:"http://"|cut:"www."|truncatechars:40 }}{% else %}Recipe from photos{% endif %}</strong>
               <span class="small {% if job.status == 'done' %}ready{% elif job.status == 'failed' %}warn{% else %}muted{% endif %}">
                 {% if job.status == "done" %}Ready to check ›{% elif job.status == "failed" %}Didn't work – try again or fill in{% else %}Reading…{% endif %}
               </span>
@@ -71,7 +68,7 @@
       {% else %}
         <p class="muted">No recipes yet.</p>
       {% endif %}
-      <a class="btn ghost small" href="{% url 'meals:recipe_new' %}{% if query %}?name={{ query|urlencode }}{% endif %}">+ Add recipe</a>
+      <a class="btn ghost small" href="{% if query %}{% url 'meals:recipe_new' %}?name={{ query|urlencode }}{% else %}{% url 'meals:recipe_add' %}{% endif %}">+ Add recipe</a>
     </div>
   {% endfor %}
 {% endblock %}
