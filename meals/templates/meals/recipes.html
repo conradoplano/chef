@@ -11,6 +11,31 @@
     </span>
   </div>
 
+  {% if imports %}
+    <section class="card imports">
+      <h3>📷 From photos</h3>
+      {% for job in imports %}
+        <div class="import-row">
+          <a class="import-link" href="{% url 'meals:recipe_import' job.pk %}">
+            {% with photo=job.photos.all.0 %}{% if photo %}<img src="{% url 'meals:photo' photo.pk %}" alt="" loading="lazy">{% endif %}{% endwith %}
+            <span>
+              <strong>{{ job.result.name|default:"Recipe from photos" }}</strong>
+              <span class="small {% if job.status == 'done' %}ready{% elif job.status == 'failed' %}warn{% else %}muted{% endif %}">
+                {% if job.status == "done" %}Ready to check ›{% elif job.status == "failed" %}Didn't work – try again or fill in{% else %}Reading…{% endif %}
+              </span>
+              <span class="small muted">{{ job.created_at|date:"D j M, H:i" }}</span>
+            </span>
+          </a>
+          {% if job.finished %}
+            <form method="post" action="{% url 'meals:recipe_import_discard' job.pk %}" class="inline">
+              {% csrf_token %}<button type="submit" class="link small danger" aria-label="Discard these photos">Discard</button>
+            </form>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
+
   <nav class="filter-pills" aria-label="Show">
     {% for key, label, count in filters %}
       <a href="?show={{ key }}{% if query %}&amp;q={{ query|urlencode }}{% endif %}" class="pill{% if key == show %} on{% endif %}"{% if key == show %} aria-current="page"{% endif %}>{{ label }} <span class="count">{{ count }}</span></a>

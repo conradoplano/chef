@@ -13,7 +13,7 @@ from django.views.decorators.http import require_POST
 
 from .. import planner
 from ..forms import DishServingsForm, FeedbackForm, IngredientFormSet, PlannedMealForm, UNITS
-from ..models import Dish, Feedback, Household, Ingredient, MenuRequest, PlannedMeal
+from ..models import Dish, Feedback, Household, Ingredient, MenuRequest, PlannedMeal, RecipeImport
 from .common import (
     back_to,
     back_url,
@@ -48,6 +48,7 @@ def home(request):
             "coming": coming,
             "coming_title": coming_title,
             "coming_week": coming_week,
+            "ready_imports": RecipeImport.objects.filter(status=RecipeImport.Status.DONE).count(),
         },
     )
 

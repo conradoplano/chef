@@ -52,7 +52,9 @@ def recipes(request):
         dishes = dishes.filter(Q(name__icontains=query) | Q(notes__icontains=query) | Q(ingredients__name__icontains=query)).distinct()
     order = "-saved_at" if show == "try" else "name"
     counts = {key: Dish.objects.filter(f).count() for key, _, f in FILTERS}
+    recipe_import.expire_stale()
     return render(request, "meals/recipes.html", {
+        "imports": unsaved_imports(),
         "dishes": with_history(dishes.order_by(order, "name")),
         "filters": [(key, label, counts[key]) for key, label, _ in FILTERS],
         "show": show,
@@ -281,3 +283,19 @@ def recipe_photo_delete(request, pk):
     photo.delete()
     messages.success(request, "Photo removed.")
     return redirect(reverse("meals:recipe", args=[dish_pk]) + "#photos")
+
+
+def unsaved_imports():
+    """Photo imports still waiting: being read, ready to check, or failed."""
+    return RecipeImport.objects.exclude(status=RecipeImport.Status.SAVED).prefetch_related("photos")
+
+
+@login_required
+@require_POST
+def recipe_import_discard(request, pk):
+    job = get_object_or_404(RecipeImport.objects.exclude(status=RecipeImport.Status.SAVED), pk=pk)
+    for photo in job.photos.filter(dish__isnull=True):
+        photo.delete()  # also removes the file
+    job.delete()
+    messages.success(request, "Discarded the photos.")
+    return redirect("meals:recipes")

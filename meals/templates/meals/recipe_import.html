@@ -14,7 +14,7 @@
     <div class="card center planning" id="planning" data-status-url="{% url 'meals:recipe_import_status' job.pk %}">
       <div class="spinner" aria-hidden="true">📖</div>
       <h2>Reading the recipe…</h2>
-      <p class="muted">Copying ingredients and method, and looking for it online. This usually takes under a minute.</p>
+      <p class="muted">Copying ingredients and method, and looking for it online. This usually takes under a minute – you can leave this page and find it again under Recipes.</p>
     </div>
   {% elif job.status == "failed" and not manual %}
     <div class="card center planning">

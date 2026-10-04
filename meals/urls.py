@@ -27,6 +27,7 @@ urlpatterns = [
     path("recipes/photo/", views.recipe_photo_new, name="recipe_photo_new"),
     path("recipes/photo/<int:pk>/", views.recipe_import_view, name="recipe_import"),
     path("recipes/photo/<int:pk>/retry/", views.recipe_import_retry, name="recipe_import_retry"),
+    path("recipes/photo/<int:pk>/discard/", views.recipe_import_discard, name="recipe_import_discard"),
     path("recipes/photo/<int:pk>/status/", views.recipe_import_status, name="recipe_import_status"),
     path("photos/<int:pk>/", views.recipe_photo_file, name="photo"),
     path("photos/<int:pk>/delete/", views.recipe_photo_delete, name="photo_delete"),

@@ -210,3 +210,58 @@ class RecipeFromPhotoTests(TestCase):
 class SimpleSearch:
     type = "web_search_call"
     status = "completed"
+
+
+class UnfinishedImportTests(TestCase):
+    """Leaving the waiting page mustn't lose a recipe: unfinished imports stay reachable."""
+
+    def setUp(self):
+        self.media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media, ignore_errors=True)
+        patcher = override_settings(MEDIA_ROOT=self.media)
+        patcher.enable()
+        self.addCleanup(patcher.disable)
+        self.client.force_login(User.objects.create_user(email="parent@example.com"))
+
+    def _job(self, status, **fields):
+        job = RecipeImport.objects.create(status=status, **fields)
+        photo = RecipePhoto(recipe_import=job)
+        photo.image.save("page.jpg", photos.process(image_file(size=(400, 300))), save=True)
+        return job
+
+    def test_recipes_page_lists_unsaved_imports(self):
+        ready = self._job("done", result={"name": "Butter bean bake"})
+        reading = self._job("running")
+        failed = self._job("failed", error="Blurry")
+        saved = self._job("saved", dish=Dish.objects.create(name="Done already"))
+        page = self.client.get(reverse("meals:recipes"))
+        self.assertContains(page, "📷 From photos")
+        self.assertContains(page, "Butter bean bake")
+        self.assertContains(page, "Ready to check ›")
+        self.assertContains(page, "Reading…")
+        self.assertContains(page, "Didn't work")
+        for job in (ready, reading, failed):
+            self.assertContains(page, reverse("meals:recipe_import", args=[job.pk]))
+        self.assertNotContains(page, reverse("meals:recipe_import", args=[saved.pk]))
+        # Something still being read can't be discarded.
+        self.assertNotContains(page, reverse("meals:recipe_import_discard", args=[reading.pk]))
+
+    def test_home_reminds_when_ready(self):
+        self.assertNotContains(self.client.get(reverse("meals:home")), "ready to check")
+        self._job("done", result={"name": "Bake"})
+        self.assertContains(self.client.get(reverse("meals:home")), "1 recipe from photos ready to check")
+
+    def test_discard_removes_photos_and_files(self):
+        job = self._job("done", result={"name": "Bake"})
+        path = job.photos.get().image.path
+        response = self.client.post(reverse("meals:recipe_import_discard", args=[job.pk]))
+        self.assertRedirects(response, reverse("meals:recipes"))
+        self.assertFalse(RecipeImport.objects.exists())
+        self.assertFalse(RecipePhoto.objects.exists())
+        import os
+        self.assertFalse(os.path.exists(path))
+
+    def test_saved_imports_cannot_be_discarded(self):
+        job = self._job("saved", dish=Dish.objects.create(name="Kept"))
+        self.assertEqual(self.client.post(reverse("meals:recipe_import_discard", args=[job.pk])).status_code, 404)
+        self.assertEqual(RecipePhoto.objects.count(), 1)

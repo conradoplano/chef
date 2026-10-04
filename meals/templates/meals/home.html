@@ -10,6 +10,10 @@
     </div>
   </div>
 
+  {% if ready_imports %}
+    <a class="flash planning-bar" href="{% url 'meals:recipes' %}">📷 {{ ready_imports }} recipe{{ ready_imports|pluralize }} from photos ready to check <strong>›</strong></a>
+  {% endif %}
+
   <section class="day-group today">
     <header class="day-head">
       <h3>Today's menu</h3>
