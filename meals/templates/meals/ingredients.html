@@ -27,13 +27,4 @@
   <datalist id="units">{% for u in units %}<option value="{{ u }}">{% endfor %}</datalist>
   <datalist id="ingredient-names">{% for n in names %}<option value="{{ n }}">{% endfor %}</datalist>
 
-  <script>
-    document.getElementById('add-row').addEventListener('click', () => {
-      const total = document.getElementById('id_ingredients-TOTAL_FORMS');
-      const html = document.getElementById('empty-row').innerHTML.replace(/__prefix__/g, total.value);
-      document.getElementById('ingredient-rows').insertAdjacentHTML('beforeend', html);
-      total.value = Number(total.value) + 1;
-      document.querySelector('#ingredient-rows .ingredient-row:last-child input').focus();
-    });
-  </script>
 {% endblock %}

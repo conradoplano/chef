@@ -6,9 +6,9 @@ to the home screen. Vibecoded with Claude Opus 5.5.
 
 ## What it does
 
-- **Home** – today's meals and the rest of the week, with one-tap feedback.
-- **Menu** – the week's meals as cards (recipe link, cooking time, portions, notes). Meals can be added,
-  changed or removed by hand, or the whole week can be planned with AI (**✨ Create menu**).
+- **Home** – today's meals and the rest of the week (on Sundays: next Monday to Friday), with one-tap feedback.
+- **Menu** – the week's meals as cards (recipe link, cooking time, portions, notes); swipe or use ‹ › to change
+  week. Meals can be added, changed or removed by hand, copied from a past week, or planned with AI.
 - **Shopping** – the week's list, built from the menu's ingredients: merged across recipes, scaled to the
   portions planned, grouped by section, with the meals each item is for. Ticks sync between phones.
 - **Family** – family members (likes, dislikes, allergies), the usual week (which meals, who eats),
@@ -26,16 +26,21 @@ shopping list follows. See `meals/planner.py`.
   subscription). Without it the feature is switched off.
 - For better (and pricier) plans set `AI_MODEL=gpt-6.1-sol` or OpenAI's flagship `gpt-6-astra`.
   `AI_EFFORT` sets the reasoning effort (low, medium, high, xhigh).
-- **Change menu** re-plans a week that already has meals; 🔄 on a meal card replaces just that dish (and its
-  leftovers) after asking why. Neither changes the week's "About this menu".
-- Recipe websites in the household settings are searched first; "recipes from other websites: never" limits
-  the web search to those sites.
-- Token counts per request are in the admin (Menu requests).
+- **Change menu** re-plans a week that already has meals; **↻** on a meal card replaces just that dish (and
+  its leftovers) after asking why. Neither changes the week's "About this menu".
+- **Recipe sources** (household settings) are websites or names, searched first; with "recipes from other
+  sources: never" and only websites listed, the web search is limited to those sites. The week page shows
+  how many recipes came from your recipe websites.
+- Recipe links are cleaned up (e.g. `tollbit.` hosts) and dropped if the page doesn't exist.
+- The rest of the family gets an email when a menu is created or changed (`MENU_EMAILS`, links use
+  `SITE_URL` or the first `CSRF_TRUSTED_ORIGINS` entry).
+- Each request's prompt, raw answer, token counts, web searches and cost are in the admin (Menu requests).
+  A request has 12 minutes; after 15 it counts as stalled and saves nothing.
 
 ## Login
 
 There are no passwords. A user enters their email and gets a six-digit code (valid 10 minutes).
-Only users that already exist can log in. Add them with:
+Only users that already exist can log in. At most 5 codes are sent per address every 15 minutes. Add them with:
 
 ```sh
 python manage.py adduser you@example.com --name "You" --admin    # with admin access
@@ -59,6 +64,9 @@ Open http://127.0.0.1:8000, enter your email, and copy the code from the termina
 
 Run tests with `python manage.py test` (with `DEBUG=true`).
 
+`requirements.in` lists the direct dependencies; `requirements.txt` pins every version the image is built
+with. Dependabot proposes monthly updates as pull requests, which only publish an image once tests pass.
+
 ## Docker / NAS
 
 ```sh
@@ -69,7 +77,8 @@ docker compose up -d --build
 - To try the image locally over http://localhost:8061 (separate database in `./data-local`;
   browsers refuse port 5061, which is only used behind the NAS reverse proxy):
   `docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build`
-- The SQLite database lives in `./data` (mounted at `/data`); back up that folder.
+- The SQLite database lives in `./data` (mounted at `/data`); back up that whole folder. It runs in WAL
+  mode, so `db.sqlite3-wal` and `db.sqlite3-shm` belong to it.
   The container runs as UID 1000, so that folder must be writable for it.
 - Migrations run automatically on container start.
 - `INITIAL_ADMIN_EMAIL` in `.env` creates the first admin user on startup.
@@ -99,7 +108,10 @@ environment variables in the NAS project and never in git.
 ## Layout
 
 - `config/` – settings (all configured through environment variables), URLs, WSGI
-- `accounts/` – email-based user model, login codes, `adduser` command
-- `meals/` – weekly menu and shopping list
+- `accounts/` – email-based user model, login codes (rate limited), `adduser` command
+- `meals/` – menu, shopping list, family and AI planning
+  - `views/` – `menu.py`, `shopping.py`, `family.py`, `planning.py`, shared helpers in `common.py`
+  - `planner.py` – prompt, OpenAI call, link checks and saving the menu; `notify.py` – menu emails
+  - `shopping.py` – building the list; `schedule.py` – the usual week and the meals grid
 - `core/` – health check, web app manifest, service worker
-- `templates/`, `static/` – base template, CSS, icons
+- `templates/`, `static/` – base template, CSS, `js/app.js`, icons

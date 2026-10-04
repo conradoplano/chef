@@ -36,9 +36,13 @@
         <span class="muted small">{% with n=meal.dish.ingredients.count %}{% if n %}{{ n }} for {{ meal.dish.name }}{% else %}none yet – needed for the shopping list{% endif %}{% endwith %}</span></span>
       <span aria-hidden="true">›</span>
     </a>
-    <form method="post" class="center">
+    <form method="post" class="center stack">
       {% csrf_token %}
-      <button type="submit" name="delete" value="1" class="danger">Remove from menu</button>
+      {% if leftovers %}
+        <label class="check remove-leftovers"><input type="checkbox" name="with_leftovers" checked>
+          Also remove its leftovers ({% for m in leftovers %}{{ m.date|date:"D" }} {{ m.get_slot_display|lower }}{% if not forloop.last %}, {% endif %}{% endfor %})</label>
+      {% endif %}
+      <div><button type="submit" name="delete" value="1" class="danger">Remove from menu</button></div>
     </form>
   {% endif %}
 {% endblock %}

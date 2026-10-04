@@ -44,3 +44,16 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def get_short_name(self):
         return self.name.split(" ")[0] if self.name else self.email.split("@")[0]
+
+
+class LoginCodeRequest(models.Model):
+    """One login code requested for an email address (known or not), to limit how many are sent."""
+
+    email = models.EmailField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.email} at {self.created_at:%Y-%m-%d %H:%M}"

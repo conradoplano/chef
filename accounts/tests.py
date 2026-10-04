@@ -96,6 +96,28 @@ class CodeLoginTests(TestCase):
         self.assertNotIn("_auth_user_id", self.client.session)
         self.assertEqual(len(mail.outbox), 1)
 
+    def test_codes_per_address_are_limited(self):
+        for _ in range(5):
+            self._request_code()
+        self.assertEqual(len(mail.outbox), 5)
+        response = self._request_code()
+        self.assertContains(response, "Too many codes")
+        self.assertEqual(len(mail.outbox), 5)
+        # Unknown addresses are limited the same way, so the limit reveals nothing.
+        for _ in range(5):
+            self._request_code("stranger@example.com")
+        self.assertContains(self._request_code("stranger@example.com"), "Too many codes")
+
+    def test_limit_resets_after_the_window(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .models import LoginCodeRequest
+
+        for _ in range(5):
+            self._request_code()
+        LoginCodeRequest.objects.update(created_at=timezone.now() - timedelta(minutes=20))
+        self.assertRedirects(self._request_code(), reverse("accounts:verify"))
+
     def test_next_parameter_is_respected(self):
         self.client.post(f"{reverse('accounts:login')}?next=/shopping/", {"email": "parent@example.com"})
         response = self.client.post(reverse("accounts:verify"), {"code": self._code_from_mail()})

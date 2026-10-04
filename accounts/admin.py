@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import User
+from .models import LoginCodeRequest, User
 
 
 @admin.register(User)
@@ -21,3 +21,9 @@ class UserAdmin(admin.ModelAdmin):
         if not change:
             obj.set_unusable_password()
         super().save_model(request, obj, form, change)
+
+
+@admin.register(LoginCodeRequest)
+class LoginCodeRequestAdmin(admin.ModelAdmin):
+    list_display = ("email", "created_at")
+    search_fields = ("email",)

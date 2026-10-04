@@ -12,8 +12,9 @@
   <link rel="apple-touch-icon" href="{% static 'icons/icon-180.png' %}">
   <link rel="icon" href="{% static 'icons/icon-192.png' %}">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <script src="{% static 'js/app.js' %}" defer></script>
 </head>
-<body class="{% if user.is_authenticated %}has-tabs{% endif %}">
+<body class="{% if user.is_authenticated %}has-tabs{% endif %}" data-sw-url="{% url 'core:sw' %}">
   <header class="topbar">
     <div class="wrap">
       <a href="{% url 'meals:home' %}" class="brand"><img src="{% static 'icons/icon-180.png' %}" alt="">{{ site_name }}</a>
@@ -50,29 +51,5 @@
     {% endwith %}
   {% endif %}
 
-  <script>
-    // One-tap feedback on meal cards: saved in the background, no page reload.
-    document.addEventListener('submit', async (event) => {
-      const form = event.target.closest('.quick-feedback');
-      if (!form) return;
-      event.preventDefault();
-      const button = event.submitter;
-      const data = new FormData(form);
-      data.set('rating', button.value);
-      try {
-        const response = await fetch(form.action, { method: 'POST', body: data, headers: { 'X-Requested-With': 'fetch' } });
-        if (!response.ok) throw new Error(response.status);
-        const { rating } = await response.json();
-        form.querySelectorAll('.qf').forEach((b) => b.setAttribute('aria-pressed', b.value === rating));
-        form.parentElement.querySelector('.split')?.remove();
-      } catch (e) {
-        // Fall back to a normal form post (which reloads the page).
-        const input = Object.assign(document.createElement('input'), { type: 'hidden', name: 'rating', value: button.value });
-        form.append(input);
-        form.submit();
-      }
-    });
-    if ('serviceWorker' in navigator) { navigator.serviceWorker.register('{% url "core:sw" %}'); }
-  </script>
 </body>
 </html>

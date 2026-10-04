@@ -12,6 +12,11 @@ import json
 import logging
 import re
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit, urlunsplit
+from urllib.request import Request, urlopen
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -19,12 +24,23 @@ from django.conf import settings
 from django.db import close_old_connections, transaction
 from django.utils import timezone
 
+from . import notify
 from .models import Category, Dish, FamilyMember, Feedback, Household, Ingredient, MenuRequest, PlannedMeal, Rule
 
 logger = logging.getLogger(__name__)
 
 MAX_TURNS = 3  # API calls per request: the first one, plus reminders to save the menu
 STALE_AFTER = timedelta(minutes=15)
+# All API calls of one request must finish within this, safely before the request counts as stale.
+TIME_BUDGET = 12 * 60
+
+# USD per million input / output tokens, to show what a request cost. Unknown models show no cost.
+PRICES = {
+    "gpt-5.4-mini": (Decimal("0.75"), Decimal("4.50")),
+    "gpt-6.1-sol": (Decimal("2"), Decimal("10")),
+    "gpt-6-astra": (Decimal("10"), Decimal("50")),
+}
+WEB_SEARCH_PRICE = Decimal("0.01")  # per search call
 
 SYSTEM_PROMPT = """You plan the weekly meals for a family and write the menu into their meal planning app.
 
@@ -44,6 +60,7 @@ Recipes:
 Ingredients:
 - List every ingredient to buy for the meal, with quantities for the number of portions you give in "servings" (people eating, plus any extra portions cooked for planned leftovers). Children eat roughly an adult portion unless their age suggests otherwise.
 - Use metric units (g, kg, ml, l) or pcs, can, bunch, head, clove, tbsp, tsp, pack, jar. Use the same name for the same ingredient across meals (e.g. always "Onions").
+- Use one unit per ingredient across all meals so quantities add up: things bought by the piece (onions, lemons, peppers, eggs, avocados) in pcs, bunches of herbs in bunch, and everything else in g or ml.
 - Include pantry staples the recipe needs too; the app sorts out what the family usually has.
 
 When the plan is ready, call save_menu once with all meals. Write the summary for the parents: two to four sentences on how the week is balanced and anything they should know (for example what to prepare ahead)."""
@@ -143,8 +160,8 @@ def enabled():
 def get_client():
     import openai
 
-    # Reasoning plus web searches can take several minutes in one call.
-    return openai.OpenAI(api_key=settings.OPENAI_API_KEY, max_retries=3, timeout=900)
+    # Per-call timeouts come from the request's time budget (see ask_model).
+    return openai.OpenAI(api_key=settings.OPENAI_API_KEY, max_retries=1)
 
 
 # --- prompt ------------------------------------------------------------------
@@ -282,15 +299,20 @@ def to_plan(request, taken=frozenset()):
 
 
 def ask_model(prompt):
-    """Runs the request until the model calls save_menu. Returns (function arguments, usage totals)."""
+    """Runs the request until the model calls save_menu.
+    Returns (parsed arguments, raw arguments, usage totals)."""
     client = get_client()
     household = Household.load()
-    usage = {"input": 0, "output": 0}
+    usage = {"input": 0, "output": 0, "searches": 0}
     previous_id = None
     next_input = [{"role": "user", "content": prompt}]
+    deadline = time.monotonic() + TIME_BUDGET
     for _ in range(MAX_TURNS):
+        remaining = deadline - time.monotonic()
+        if remaining < 30:
+            raise PlanningError("Creating the menu took too long. Please try again.")
         # Web searches run on OpenAI's side within this one call; the model then calls save_menu.
-        response = client.responses.create(
+        response = client.with_options(timeout=remaining).responses.create(
             model=settings.AI_MODEL,
             instructions=SYSTEM_PROMPT,
             input=next_input,
@@ -303,11 +325,12 @@ def ask_model(prompt):
         if response.usage:
             usage["input"] += response.usage.input_tokens or 0
             usage["output"] += response.usage.output_tokens or 0
+        usage["searches"] += sum(1 for i in response.output if i.type == "web_search_call")
 
         call = next((i for i in response.output if i.type == "function_call" and i.name == "save_menu"), None)
         if call is not None:
             try:
-                return json.loads(call.arguments), usage
+                return json.loads(call.arguments), call.arguments, usage
             except json.JSONDecodeError:
                 raise PlanningError("The AI returned a menu that couldn't be read. Please try again.")
         if response.status == "incomplete":
@@ -328,6 +351,55 @@ def ask_model(prompt):
     raise PlanningError("The AI didn't return a menu. Please try again.")
 
 
+# --- recipe links ------------------------------------------------------------------
+
+# Hosts that serve a site's pages to automated tools; people should get the normal site.
+HOST_REWRITES = {"tollbit.": "www."}
+LINK_CHECK_TIMEOUT = 8
+BROWSER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0 Safari/537.36"
+
+
+def clean_url(url):
+    url = url.strip()
+    parts = urlsplit(url)
+    host = parts.netloc.lower()
+    for prefix, replacement in HOST_REWRITES.items():
+        if host.startswith(prefix):
+            return urlunsplit(parts._replace(netloc=replacement + parts.netloc[len(prefix):]))
+    return url
+
+
+def link_works(url):
+    """False only when the page clearly isn't there (404/410) or the site can't be reached.
+    Sites that block automated checks (403, 429...) or are slow get the benefit of the doubt."""
+    try:
+        with urlopen(Request(url, headers={"User-Agent": BROWSER_AGENT}), timeout=LINK_CHECK_TIMEOUT):
+            return True
+    except HTTPError as exc:
+        return exc.code not in (404, 410)
+    except URLError as exc:
+        return isinstance(exc.reason, TimeoutError)  # unknown host or refused: gone
+    except (TimeoutError, OSError):
+        return True
+    except ValueError:
+        return False  # not a valid URL
+
+
+def clean_links(data):
+    """Fixes known host quirks and drops recipe links that don't exist, checking them in parallel."""
+    meals = [m for m in data.get("meals", []) if str(m.get("recipe_url", "")).startswith(("http://", "https://"))]
+    for meal in meals:
+        meal["recipe_url"] = clean_url(meal["recipe_url"])
+    urls = sorted({m["recipe_url"] for m in meals})
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        works = dict(zip(urls, pool.map(link_works, urls)))
+    for meal in meals:
+        if not works[meal["recipe_url"]]:
+            logger.info("Dropping recipe link that doesn't open: %s", meal["recipe_url"])
+            meal["recipe_url"] = ""
+    return data
+
+
 # --- saving ------------------------------------------------------------------------
 
 
@@ -343,7 +415,11 @@ def _decimal(value):
 
 @transaction.atomic
 def save_menu(request, data):
-    """Stores the AI's menu. Only requested slots are filled; returns the number of meals saved."""
+    """Stores the AI's menu. Only requested slots are filled; returns the number of meals saved.
+    Raises PlanningError - undoing everything, including removed meals - if nothing could be saved."""
+    if not MenuRequest.objects.filter(pk=request.pk, status=MenuRequest.Status.RUNNING).exists():
+        # Marked as stale meanwhile; the family may already have started a new request.
+        raise PlanningError("This took too long and was stopped. Please try again.")
     week_end = request.week + timedelta(days=6)
     existing = PlannedMeal.objects.filter(date__range=(request.week, week_end))
     if request.keep_existing:
@@ -408,9 +484,19 @@ def save_menu(request, data):
         )
         meal.eaters.set([members[i] for i in slot["eaters"] if i in members])
         saved += 1
+    if not saved:
+        raise PlanningError("The AI's menu didn't match the meals you asked for. Please try again.")
     if wanted:
         logger.warning("The AI left %d requested meals unplanned: %s", len(wanted), sorted(wanted))
     return saved
+
+
+def cost(model, usage):
+    prices = PRICES.get(model)
+    if not prices:
+        return None
+    tokens = (usage["input"] * prices[0] + usage["output"] * prices[1]) / Decimal(1_000_000)
+    return (tokens + usage["searches"] * WEB_SEARCH_PRICE).quantize(Decimal("0.0001"))
 
 
 # --- running in the background ------------------------------------------------------
@@ -418,18 +504,23 @@ def save_menu(request, data):
 
 def run(request_id):
     """Creates the menu for a MenuRequest. Safe to run in a thread."""
+    notify_family = False
     try:
         request = MenuRequest.objects.select_related("created_by").get(pk=request_id)
         request.status = MenuRequest.Status.RUNNING
         request.save(update_fields=["status"])
         try:
-            data, usage = ask_model(build_prompt(request))
+            request.prompt = build_prompt(request)
+            request.model = settings.AI_MODEL
+            data, request.response, usage = ask_model(request.prompt)
+            data = clean_links(data)
             request.input_tokens, request.output_tokens = usage["input"], usage["output"]
-            saved = save_menu(request, data)
-            if not saved:
-                raise PlanningError("The AI's menu didn't match the meals you asked for. Please try again.")
+            request.web_searches = usage["searches"]
+            request.cost = cost(request.model, usage)
+            save_menu(request, data)
             request.summary = str(data.get("summary", "")).strip()
             request.status = MenuRequest.Status.DONE
+            notify_family = True
         except PlanningError as exc:
             request.status, request.error = MenuRequest.Status.FAILED, str(exc)
         except Exception as exc:  # network, API or unexpected errors: keep the app usable
@@ -438,6 +529,8 @@ def run(request_id):
             request.error = f"Something went wrong while creating the menu ({exc.__class__.__name__}). Please try again."
         request.finished_at = timezone.now()
         request.save()
+        if notify_family:
+            notify.menu_ready(request)
     finally:
         close_old_connections()
 

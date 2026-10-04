@@ -90,6 +90,12 @@ def pantry_keys():
     return {item_key(s) for s in staples if s.strip()}
 
 
+def is_staple(key, staples):
+    """True if a pantry staple is the item or part of its name, as whole words:
+    "olive oil" matches "extra virgin olive oil", but "oil" doesn't match "foil"."""
+    return any(key == s or re.search(rf"\b{re.escape(s)}\b", key) for s in staples)
+
+
 def build(week):
     """Returns (sections, at_home, missing) for the week starting on Monday `week`.
 
@@ -147,7 +153,7 @@ def build(week):
             item.checked_by = check.checked_by.get_short_name() if check.checked_by else ""
 
     staples = pantry_keys()
-    at_home = sorted((i for i in items if i.key in staples and not i.extra), key=lambda i: i.name.lower())
+    at_home = sorted((i for i in items if is_staple(i.key, staples) and not i.extra), key=lambda i: i.name.lower())
     at_home_keys = {i.key for i in at_home}
     to_buy = [i for i in items if i.key not in at_home_keys]
 

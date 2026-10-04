@@ -84,6 +84,13 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": DATA_DIR / "db.sqlite3",
+        # Menu planning writes from a background thread while phones poll the shopping list:
+        # WAL lets reads and a write happen together, and writers wait instead of failing.
+        "OPTIONS": {
+            "init_command": "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;",
+            "transaction_mode": "IMMEDIATE",
+            "timeout": 20,
+        },
     }
 }
 
@@ -146,6 +153,10 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "chef@localhost")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 AI_MODEL = os.environ.get("AI_MODEL", "gpt-5.4-mini")
 AI_EFFORT = os.environ.get("AI_EFFORT", "medium")
+# Email the rest of the family when a menu is created or changed (uses the SMTP settings above).
+MENU_EMAILS = env_bool("MENU_EMAILS", True)
+# Address of the app, for links in emails; defaults to the first CSRF_TRUSTED_ORIGINS entry.
+SITE_URL = os.environ.get("SITE_URL", "")
 
 LOGGING = {
     "version": 1,

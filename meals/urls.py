@@ -29,6 +29,7 @@ urlpatterns = [
     path("family/household/", views.household_edit, name="household"),
     path("family/usual-week/", views.usual_week, name="usual_week"),
     path("week/<str:day>/create/", views.menu_create, name="menu_create"),
+    path("week/<str:day>/copy/", views.menu_copy, name="menu_copy"),
     path("plan/<int:pk>/", views.menu_request, name="menu_request"),
     path("plan/<int:pk>/status/", views.menu_request_status, name="menu_request_status"),
 ]

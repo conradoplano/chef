@@ -9,6 +9,7 @@ that requested it.
 import logging
 import secrets
 import time
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib import messages
@@ -16,17 +17,32 @@ from django.contrib.auth import login, logout
 from django.core.mail import send_mail
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
+from django.utils import timezone
 from django.utils.crypto import constant_time_compare, salted_hmac
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from .forms import CodeForm, EmailLoginForm
-from .models import User
+from .models import LoginCodeRequest, User
 
 logger = logging.getLogger(__name__)
 
 SESSION_KEY = "pending_login"
 MAX_ATTEMPTS = 5
+# At most this many codes per email address in the window, so nobody can flood an inbox.
+MAX_CODES = 5
+CODES_WINDOW = timedelta(minutes=15)
+
+
+def _too_many_codes(email):
+    """Counts this request; True if the address already had MAX_CODES in the window.
+    Unknown addresses are counted the same way, so the limit reveals nothing."""
+    now = timezone.now()
+    LoginCodeRequest.objects.filter(created_at__lt=now - timedelta(days=1)).delete()
+    if LoginCodeRequest.objects.filter(email=email, created_at__gte=now - CODES_WINDOW).count() >= MAX_CODES:
+        return True
+    LoginCodeRequest.objects.create(email=email)
+    return False
 
 
 def _hash(code):
@@ -52,6 +68,11 @@ def login_request(request):
                 return render(request, "accounts/login.html", {"form": form})
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             return redirect(next_url or settings.LOGIN_REDIRECT_URL)
+
+        if _too_many_codes(email):
+            logger.warning("Too many login codes requested for %s", email)
+            messages.error(request, "Too many codes were requested for this address. Please wait a few minutes.")
+            return render(request, "accounts/login.html", {"form": form})
 
         code = f"{secrets.randbelow(10**6):06d}"
         # Store state even for unknown emails so the flow looks identical.

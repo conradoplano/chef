@@ -3,7 +3,7 @@
 {% block title %}Creating menu · {{ site_name }}{% endblock %}
 
 {% block content %}
-  <div class="card center planning" id="planning" data-status-url="{% url 'meals:menu_request_status' menu_request.pk %}">
+  <div class="card center planning" id="planning"{% if not menu_request.finished %} data-status-url="{% url 'meals:menu_request_status' menu_request.pk %}"{% endif %}>
     {% if menu_request.status == "failed" %}
       <div class="big">😕</div>
       <h2>That didn't work</h2>
@@ -18,21 +18,4 @@
   </div>
   <p class="center"><a href="{% url 'meals:menu_of' menu_request.week.isoformat %}">Back to the week</a></p>
 
-  {% if not menu_request.finished %}
-    <script>
-      (() => {
-        const box = document.getElementById('planning');
-        const poll = async () => {
-          try {
-            const response = await fetch(box.dataset.statusUrl, { headers: { 'X-Requested-With': 'fetch' } });
-            const state = await response.json();
-            if (state.status === 'done') { location.href = state.url; return; }
-            if (state.finished) { location.reload(); return; }
-          } catch (e) { /* try again */ }
-          setTimeout(poll, 3000);
-        };
-        setTimeout(poll, 3000);
-      })();
-    </script>
-  {% endif %}
 {% endblock %}

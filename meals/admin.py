@@ -54,6 +54,6 @@ class HouseholdAdmin(admin.ModelAdmin):
 
 @admin.register(MenuRequest)
 class MenuRequestAdmin(admin.ModelAdmin):
-    list_display = ("week", "status", "created_by", "created_at", "input_tokens", "output_tokens")
-    list_filter = ("status",)
-    readonly_fields = ("created_at", "finished_at")
+    list_display = ("week", "kind", "status", "model", "cost", "web_searches", "created_by", "created_at")
+    list_filter = ("status", "kind", "model")
+    readonly_fields = [f.name for f in MenuRequest._meta.fields]

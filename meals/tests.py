@@ -97,6 +97,24 @@ class MenuTests(TestCase):
         self.assertRedirects(response, reverse("meals:menu_of", args=["2026-09-29"]))
         self.assertFalse(PlannedMeal.objects.exists())
 
+    def test_removing_a_cooked_meal_offers_to_remove_its_leftovers(self):
+        cooked = PlannedMeal.objects.create(date=date(2026, 10, 3), dish=self.curry, servings=8)
+        later = PlannedMeal.objects.create(date=date(2026, 10, 4), slot="lunch", dish=self.curry, leftovers=True)
+        other_week = PlannedMeal.objects.create(date=date(2026, 10, 6), dish=self.curry, leftovers=True)
+        page = self.client.get(reverse("meals:meal", args=[cooked.pk]))
+        self.assertContains(page, "Also remove its leftovers (Sun lunch)")
+        response = self.client.post(reverse("meals:meal", args=[cooked.pk]), {"delete": "1", "with_leftovers": "on"}, follow=True)
+        self.assertContains(response, "and its leftovers (Sun lunch)")
+        self.assertFalse(PlannedMeal.objects.filter(pk__in=[cooked.pk, later.pk]).exists())
+        self.assertTrue(PlannedMeal.objects.filter(pk=other_week.pk).exists())
+
+    def test_leftovers_stay_when_unticked(self):
+        cooked = PlannedMeal.objects.create(date=date(2026, 10, 3), dish=self.curry)
+        later = PlannedMeal.objects.create(date=date(2026, 10, 4), slot="lunch", dish=self.curry, leftovers=True)
+        self.client.post(reverse("meals:meal", args=[cooked.pk]), {"delete": "1"})
+        self.assertTrue(PlannedMeal.objects.filter(pk=later.pk).exists())
+        self.assertNotContains(self.client.get(reverse("meals:meal", args=[later.pk])), "Also remove its leftovers")
+
     def test_dish_name_required(self):
         response = self._post(reverse("meals:meal_new"))
         self.assertEqual(response.status_code, 200)
@@ -396,6 +414,15 @@ class ShoppingListTests(TestCase):
         self.assertEqual([i.name for i in at_home], ["Garlic", "Rice"])
         self.assertNotIn("Rice", items)
 
+    def test_pantry_staples_match_longer_names(self):
+        self.curry.ingredients.create(name="Extra virgin olive oil", quantity=2, unit="tbsp", category="pantry")
+        self.curry.ingredients.create(name="Tin foil", category="other")
+        household = Household.load()
+        household.pantry = "olive oil, oil"
+        household.save()
+        _, _, at_home, _ = self._build()
+        self.assertEqual([i.name for i in at_home], ["Extra virgin olive oil"])
+
     def test_meals_without_ingredients_are_reported(self):
         PlannedMeal.objects.create(date=date(2026, 10, 2), dish=Dish.objects.create(name="Flatbreads"))
         *_, missing = self._build()
@@ -665,4 +692,58 @@ class SwipeTests(TestCase):
             response = self.client.get(reverse(name, args=["2026-10-07"]))
             self.assertContains(response, f'id="week-prev" href="{reverse(name, args=["2026-09-28"])}"')
             self.assertContains(response, f'id="week-next" href="{reverse(name, args=["2026-10-12"])}"')
-            self.assertContains(response, "addEventListener('touchend'")
+            self.assertContains(response, "/static/js/app.js")
+
+
+class CopyWeekTests(TestCase):
+    def setUp(self):
+        self.client.force_login(User.objects.create_user(email="parent@example.com"))
+        self.ana = FamilyMember.objects.create(name="Ana")
+        self.curry, self.pie = Dish.objects.create(name="Curry"), Dish.objects.create(name="Pie")
+        monday = PlannedMeal.objects.create(date=date(2026, 9, 21), dish=self.curry, servings=3, note="Mild")
+        monday.eaters.set([self.ana])
+        PlannedMeal.objects.create(date=date(2026, 9, 26), dish=self.pie)
+        PlannedMeal.objects.create(date=date(2026, 9, 27), slot="lunch", dish=self.pie, leftovers=True)
+
+    def test_lists_weeks_with_meals(self):
+        response = self.client.get(reverse("meals:menu_copy", args=["2026-10-05"]))
+        week = response.context["weeks"][0]
+        self.assertEqual((week["start"], week["count"], week["dishes"]), (date(2026, 9, 21), 3, ["Curry", "Pie"]))
+        self.assertContains(response, "Copy 3 meals")
+
+    def test_copies_meals_to_the_same_weekdays(self):
+        PlannedMeal.objects.create(date=date(2026, 10, 10), dish=Dish.objects.create(name="Pizza"))  # Saturday taken
+        response = self.client.post(reverse("meals:menu_copy", args=["2026-10-07"]), {"source": "2026-09-21"}, follow=True)
+        self.assertContains(response, "Copied 2 meals from the week of 21 Sep (1 skipped – already planned).")
+        monday = PlannedMeal.objects.get(date=date(2026, 10, 5))
+        self.assertEqual((monday.dish, monday.servings, monday.note, list(monday.eaters.all())), (self.curry, 3, "Mild", [self.ana]))
+        self.assertTrue(PlannedMeal.objects.get(date=date(2026, 10, 11)).leftovers)
+        self.assertEqual(PlannedMeal.objects.get(date=date(2026, 10, 10)).dish.name, "Pizza")
+
+    def test_week_page_links(self):
+        self.assertContains(self.client.get(reverse("meals:menu_of", args=["2026-10-05"])), "or copy a past week")
+        self.assertContains(self.client.get(reverse("meals:menu_of", args=["2026-09-21"])), "Copy meals from a past week")
+
+
+class RecipesFromSourcesTests(TestCase):
+    def setUp(self):
+        self.client.force_login(User.objects.create_user(email="parent@example.com"))
+        for name, url in [("A", "https://www.bbcgoodfood.com/a"), ("B", "https://tollbit.bbcgoodfood.com/b"),
+                          ("C", "https://other.example/c"), ("D", "")]:
+            PlannedMeal.objects.create(date=date(2026, 10, 5), dish=Dish.objects.create(name=name, recipe_url=url))
+        PlannedMeal.objects.create(date=date(2026, 10, 6), dish=Dish.objects.get(name="C"), leftovers=True)
+
+    def _page(self):
+        return self.client.get(reverse("meals:menu_of", args=["2026-10-05"]))
+
+    def test_counts_cooked_meals_from_the_websites(self):
+        household = Household.load()
+        household.recipe_sites = "bbcgoodfood.com\nJamie Oliver"
+        household.save()
+        self.assertContains(self._page(), "2 of 3 recipes from your recipe websites")
+
+    def test_hidden_without_websites(self):
+        household = Household.load()
+        household.recipe_sites = "Jamie Oliver"
+        household.save()
+        self.assertNotContains(self._page(), "from your recipe websites")

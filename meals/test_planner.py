@@ -5,6 +5,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest import mock
 
+from django.core import mail
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -40,7 +41,12 @@ class FakeOpenAI:
     def __init__(self, *replies):
         self.replies = list(replies)
         self.requests = []
+        self.timeouts = []
         self.responses = SimpleNamespace(create=self.create)
+
+    def with_options(self, timeout=None):
+        self.timeouts.append(timeout)
+        return self
 
     def create(self, **kwargs):
         self.requests.append(kwargs)
@@ -68,8 +74,11 @@ class CreateMenuTests(TestCase):
         self.client.force_login(self.user)
         self.mum = FamilyMember.objects.create(name="Ana", kind="adult", birth_year=1985, allergies="Peanuts")
         self.kid = FamilyMember.objects.create(name="Leo", kind="child", birth_year=2019, dislikes="Cooked peppers")
-        # Run "background" work right away in tests.
+        # Run "background" work right away in tests, without checking links on the internet.
         patcher = mock.patch.object(planner, "start", side_effect=lambda request: planner.run(request.pk))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(planner, "link_works", return_value=True)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -246,6 +255,52 @@ class CreateMenuTests(TestCase):
         self.assertIn("ConnectionError", request.error)
         self.assertFalse(PlannedMeal.objects.exists())
 
+    def test_unusable_answer_keeps_the_meals_it_would_replace(self):
+        kept = PlannedMeal.objects.create(date="2026-10-05", dish=Dish.objects.create(name="Pizza"))
+        self._fake(reply(tool_call({"summary": "", "meals": [meal("2026-12-24", "dinner", "Wrong week")]})))
+        self._post([("2026-10-05", "dinner", [self.mum])], replace=True)
+        request = MenuRequest.objects.get()
+        self.assertEqual(request.status, "failed")
+        self.assertIn("didn't match", request.error)
+        self.assertTrue(PlannedMeal.objects.filter(pk=kept.pk).exists())
+
+    def test_request_expired_meanwhile_saves_nothing(self):
+        fake = self._fake(reply(tool_call({"summary": "", "meals": [meal("2026-10-05", "dinner", "Tacos")]})))
+        create = fake.create
+
+        def slow_create(**kwargs):
+            # While waiting for the AI, the request is marked stale (e.g. the family started a new one).
+            MenuRequest.objects.update(status="failed", error="This took too long and was stopped. Please try again.")
+            return create(**kwargs)
+
+        fake.responses.create = slow_create
+        self._post([("2026-10-05", "dinner", [self.mum])])
+        self.assertEqual(MenuRequest.objects.get().status, "failed")
+        self.assertFalse(PlannedMeal.objects.exists())
+
+    def test_time_budget(self):
+        fake = self._fake(reply(tool_call({"summary": "", "meals": [meal("2026-10-05", "dinner", "Tacos")]})))
+        self._post([("2026-10-05", "dinner", [self.mum])])
+        self.assertLessEqual(fake.timeouts[0], planner.TIME_BUDGET)
+        MenuRequest.objects.all().delete()
+        self._fake(reply(tool_call({"summary": "", "meals": []})))
+        with mock.patch.object(planner, "TIME_BUDGET", 10):
+            self._post([("2026-10-06", "dinner", [self.mum])])
+        self.assertIn("took too long", MenuRequest.objects.get().error)
+
+    def test_prompt_answer_and_cost_are_kept(self):
+        search = SimpleNamespace(type="web_search_call", status="completed")
+        self._fake(reply(search, tool_call({"summary": "ok", "meals": [meal("2026-10-05", "dinner", "Tacos")]})))
+        self._post([("2026-10-05", "dinner", [self.mum])])
+        request = MenuRequest.objects.get()
+        self.assertEqual(request.model, "gpt-6.1-sol")
+        self.assertIn("## Meals to plan", request.prompt)
+        self.assertEqual(json.loads(request.response)["meals"][0]["dish_name"], "Tacos")
+        self.assertEqual(request.web_searches, 1)
+        # 1000 input and 500 output tokens at $2 / $10 per million, plus one search at $0.01.
+        self.assertEqual(request.cost, Decimal("0.0170"))
+        self.assertIsNone(planner.cost("some-new-model", {"input": 1, "output": 1, "searches": 0}))
+
     def test_validation(self):
         response = self._post([])
         self.assertContains(response, "Choose at least one meal")
@@ -335,6 +390,9 @@ class ChangeMenuTests(TestCase):
         self.ana = FamilyMember.objects.create(name="Ana")
         self.leo = FamilyMember.objects.create(name="Leo", kind="child")
         patcher = mock.patch.object(planner, "start", side_effect=lambda request: planner.run(request.pk))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(planner, "link_works", return_value=True)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.today = date(2026, 10, 4)  # a Sunday, so the week of 5 Oct is in the future
@@ -495,3 +553,97 @@ class RecipeSitesTests(TestCase):
         household = self._household("", "never")
         self.assertNotIn("Recipe sources", planner.build_prompt(self.request))
         self.assertNotIn("filters", planner.web_search_tool(household))
+
+
+
+class RecipeLinkTests(TestCase):
+    def test_tollbit_hosts_become_the_normal_site(self):
+        self.assertEqual(planner.clean_url("https://tollbit.bbcgoodfood.com/recipes/stew"),
+                         "https://www.bbcgoodfood.com/recipes/stew")
+        self.assertEqual(planner.clean_url(" https://www.chefkoch.de/x "), "https://www.chefkoch.de/x")
+
+    def test_link_check_only_drops_clearly_missing_pages(self):
+        from urllib.error import HTTPError, URLError
+
+        def check(error):
+            with mock.patch.object(planner, "urlopen", side_effect=error):
+                return planner.link_works("https://example.com/r")
+
+        self.assertFalse(check(HTTPError("u", 404, "Not Found", {}, None)))
+        self.assertFalse(check(HTTPError("u", 410, "Gone", {}, None)))
+        self.assertFalse(check(URLError(OSError("Name or service not known"))))
+        self.assertTrue(check(HTTPError("u", 403, "Forbidden", {}, None)))  # bot protection
+        self.assertTrue(check(HTTPError("u", 500, "Error", {}, None)))
+        self.assertTrue(check(URLError(TimeoutError())))
+        self.assertTrue(check(TimeoutError()))
+
+    def test_clean_links(self):
+        data = {"meals": [
+            {"recipe_url": "https://tollbit.bbcgoodfood.com/a"},
+            {"recipe_url": "https://gone.example/b"},
+            {"recipe_url": ""},
+        ]}
+        with mock.patch.object(planner, "link_works", side_effect=lambda url: "gone" not in url) as works:
+            planner.clean_links(data)
+        self.assertEqual([m["recipe_url"] for m in data["meals"]], ["https://www.bbcgoodfood.com/a", "", ""])
+        self.assertEqual(works.call_count, 2)
+
+
+@override_settings(OPENAI_API_KEY="test-key", AI_MODEL="gpt-5.4-mini", CSRF_TRUSTED_ORIGINS=["https://chef.example.com"], SITE_URL="")
+class MenuEmailTests(TestCase):
+    def setUp(self):
+        self.pat = User.objects.create_user(email="pat@example.com", name="Pat Parent")
+        self.sam = User.objects.create_user(email="sam@example.com", name="Sam")
+        self.client.force_login(self.pat)
+        for name, target in [("start", lambda request: planner.run(request.pk)), ("link_works", None)]:
+            patcher = mock.patch.object(planner, name, side_effect=target) if target else mock.patch.object(planner, name, return_value=True)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _fake(self, *replies):
+        patcher = mock.patch.object(planner, "get_client", return_value=FakeOpenAI(*replies))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _create(self):
+        return self.client.post(reverse("meals:menu_create", args=[WEEK.isoformat()]), {"2026-10-05-dinner-on": "on"})
+
+    def test_the_others_get_the_new_menu(self):
+        self._fake(reply(tool_call({"summary": "A calm week.", "meals": [meal("2026-10-05", "dinner", "Tacos")]})))
+        self._create()
+        self.assertEqual(len(mail.outbox), 1)
+        email = mail.outbox[0]
+        self.assertEqual(email.to, ["sam@example.com"])
+        self.assertEqual(email.subject, "Chef: New menu for the week of 5 Oct")
+        self.assertIn("Pat created the menu for the week of 5 October", email.body)
+        self.assertIn("- Mon 5 Oct, dinner: Tacos", email.body)
+        self.assertIn("A calm week.", email.body)
+        self.assertIn("https://chef.example.com/week/2026-10-05/", email.body)
+
+    def test_replaced_dish(self):
+        tacos = PlannedMeal.objects.create(date="2026-10-05", dish=Dish.objects.create(name="Tacos"))
+        summary = "Summary of the replacement"
+        self._fake(reply(tool_call({"summary": summary, "meals": [meal("2026-10-05", "dinner", "Fish pie")]})))
+        with mock.patch("django.utils.timezone.localdate", return_value=date(2026, 10, 4)):
+            self.client.post(reverse("meals:meal_replace", args=[tacos.pk]), {"reason": "Too spicy"})
+        self.assertEqual(mail.outbox[0].subject, "Chef: Tacos was replaced on the menu")
+        self.assertIn('Pat replaced Tacos on the menu ("Too spicy")', mail.outbox[0].body)
+        self.assertIn("Fish pie", mail.outbox[0].body)
+        self.assertNotIn(summary, mail.outbox[0].body)  # only new menus carry a summary
+
+    def test_no_email_when_it_failed_or_is_switched_off(self):
+        self._fake(reply(message("no", refusal=True)))
+        self._create()
+        self.assertEqual(mail.outbox, [])
+        MenuRequest.objects.all().delete()
+        self._fake(reply(tool_call({"summary": "", "meals": [meal("2026-10-05", "dinner", "Tacos")]})))
+        with override_settings(MENU_EMAILS=False):
+            self._create()
+        self.assertEqual(MenuRequest.objects.get().status, "done")
+        self.assertEqual(mail.outbox, [])
+
+    def test_mail_failure_does_not_break_the_menu(self):
+        self._fake(reply(tool_call({"summary": "", "meals": [meal("2026-10-05", "dinner", "Tacos")]})))
+        with mock.patch("meals.notify.send_mail", side_effect=OSError("smtp down")), self.assertLogs("meals.notify", "ERROR"):
+            self._create()
+        self.assertEqual(MenuRequest.objects.get().status, "done")

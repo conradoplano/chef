@@ -37,6 +37,8 @@ services:
       EMAIL_USE_TLS: "true"
       DEFAULT_FROM_EMAIL: "Chef <chef@example.com>"
       LOGIN_CODE_MAX_AGE: "600"
+      # Email the rest of the family when a menu is created or changed
+      MENU_EMAILS: "true"
       # AI menu planning (platform.openai.com/api-keys); empty switches it off
       OPENAI_API_KEY: ""
       AI_MODEL: "gpt-5.4-mini"

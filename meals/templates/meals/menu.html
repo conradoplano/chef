@@ -12,6 +12,7 @@
   {% endif %}
   {% if not meal_count and not menu_request or not meal_count and menu_request.finished %}
     <a class="btn wide create-menu" href="{% url 'meals:menu_create' start.isoformat %}">✨ Create menu</a>
+    <p class="center small copy-link"><a href="{% url 'meals:menu_copy' start.isoformat %}">or copy a past week</a></p>
   {% endif %}
 
   {% for d in days %}
@@ -19,9 +20,10 @@
   {% endfor %}
 
   {% if meal_count %}
-    <p class="muted small center">{{ meal_count }} meal{{ meal_count|pluralize }} planned this week</p>
+    <p class="muted small center">{{ meal_count }} meal{{ meal_count|pluralize }} planned this week{% if from_sources %} · {{ from_sources.ours }} of {{ from_sources.total }} recipes from your recipe websites{% endif %}</p>
     {% if not menu_request or menu_request.finished %}
       <a class="btn ghost wide create-menu" href="{% url 'meals:menu_create' start.isoformat %}">✨ Change menu</a>
+      <p class="center small copy-link"><a href="{% url 'meals:menu_copy' start.isoformat %}">Copy meals from a past week</a></p>
     {% endif %}
   {% endif %}
   {% if about %}

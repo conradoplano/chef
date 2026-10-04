@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}Copy a past week · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <h2>Copy a past week</h2>
+  <p class="muted">Into the week of {{ start|date:"j M" }} – {{ end|date:"j M Y" }}. Meals keep their weekday and meal; ones already planned this week stay.</p>
+  {% for w in weeks %}
+    <form method="post" class="card copy-week">
+      {% csrf_token %}
+      <input type="hidden" name="source" value="{{ w.start.isoformat }}">
+      <div class="line">
+        <strong>{{ w.start|date:"j M" }} – {{ w.end|date:"j M Y" }}</strong>
+        <button type="submit" class="btn ghost small">Copy {{ w.count }} meal{{ w.count|pluralize }}</button>
+      </div>
+      <p class="muted small">{{ w.dishes|join:" · " }}</p>
+    </form>
+  {% empty %}
+    <p class="muted">No other weeks with meals yet.</p>
+  {% endfor %}
+  <p class="center"><a href="{% url 'meals:menu_of' start.isoformat %}">Back to the week</a></p>
+{% endblock %}
