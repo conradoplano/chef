@@ -1,8 +1,36 @@
 <div class="weeknav">
-  <a class="btn ghost" href="{% url url_of prev.isoformat %}" aria-label="Previous week">‹</a>
+  <a class="btn ghost" id="week-prev" href="{% url url_of prev.isoformat %}" aria-label="Previous week">‹</a>
   <div class="center">
     <strong>{{ start|date:"j M" }} – {{ end|date:"j M Y" }}</strong>
     {% if start != this_week %}<div><a class="small" href="{% url url_of this_week.isoformat %}">Back to this week</a></div>{% endif %}
   </div>
-  <a class="btn ghost" href="{% url url_of next.isoformat %}" aria-label="Next week">›</a>
+  <a class="btn ghost" id="week-next" href="{% url url_of next.isoformat %}" aria-label="Next week">›</a>
 </div>
+<script>
+  // Swipe left for the next week, right for the previous one (same links as the arrows).
+  (() => {
+    const main = document.querySelector('main');
+    let start = null;
+    document.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      const skip = e.touches.length > 1 || e.target.closest('input, textarea, select, [contenteditable]');
+      start = skip ? null : { x: t.clientX, y: t.clientY, time: Date.now() };
+    }, { passive: true });
+    document.addEventListener('touchend', (e) => {
+      if (!start) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - start.x;
+      const dy = t.clientY - start.y;
+      const quick = Date.now() - start.time < 700;
+      start = null;
+      // Clearly sideways and long enough, so scrolling up and down never changes the week.
+      if (!quick || Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy)) return;
+      const link = document.getElementById(dx < 0 ? 'week-next' : 'week-prev');
+      if (!link) return;
+      main.classList.add(dx < 0 ? 'swipe-next' : 'swipe-prev');
+      location.href = link.href;
+    }, { passive: true });
+    // Coming back with the browser's back button can show the page from cache, mid-animation.
+    window.addEventListener('pageshow', () => main.classList.remove('swipe-next', 'swipe-prev'));
+  })();
+</script>

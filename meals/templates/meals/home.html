@@ -26,13 +26,9 @@
     {% endfor %}
   </section>
 
-  {% if rest_of_week %}
-    <h3 class="section-title">Rest of the week</h3>
-    {% for d in rest_of_week %}
-      {% include "meals/_day_group.html" with return_to=request.path %}
-    {% endfor %}
-    <p class="center"><a href="{% url 'meals:menu' %}">Open the week menu →</a></p>
-  {% else %}
-    <p class="center"><a href="{% url 'meals:menu_of' next_week.isoformat %}">See next week's menu →</a></p>
-  {% endif %}
+  <h3 class="section-title">{{ coming_title }}</h3>
+  {% for d in coming %}
+    {% include "meals/_day_group.html" with return_to=request.path %}
+  {% endfor %}
+  <p class="center"><a href="{% url 'meals:menu_of' coming_week.isoformat %}">Open the week menu →</a></p>
 {% endblock %}

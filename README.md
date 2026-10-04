@@ -17,15 +17,19 @@ to the home screen. Vibecoded with Claude Opus 5.5.
 ## AI menu planning
 
 **✨ Create menu** on the week page asks which meals are needed and who eats them (prefilled from the
-usual week) and for notes about the week. An OpenAI model (`AI_MODEL`, default `gpt-6.1-sol`) then plans
+usual week) and for notes about the week. An OpenAI model (`AI_MODEL`, default `gpt-5.4-mini`) then plans
 the meals in the background through the Responses API, searches the web for recipes and returns them
 through a strict function schema; they are saved as normal dishes, ingredients and meals, so the
 shopping list follows. See `meals/planner.py`.
 
 - Needs `OPENAI_API_KEY` (from platform.openai.com; API use is billed separately from a ChatGPT
   subscription). Without it the feature is switched off.
-- `AI_MODEL=gpt-6-astra` is OpenAI's flagship for complex reasoning (about 5x the price of `gpt-6.1-sol`).
+- For better (and pricier) plans set `AI_MODEL=gpt-6.1-sol` or OpenAI's flagship `gpt-6-astra`.
   `AI_EFFORT` sets the reasoning effort (low, medium, high, xhigh).
+- **Change menu** re-plans a week that already has meals; 🔄 on a meal card replaces just that dish (and its
+  leftovers) after asking why. Neither changes the week's "About this menu".
+- Recipe websites in the household settings are searched first; "recipes from other websites: never" limits
+  the web search to those sites.
 - Token counts per request are in the admin (Menu requests).
 
 ## Login

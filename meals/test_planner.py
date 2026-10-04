@@ -263,7 +263,7 @@ class CreateMenuTests(TestCase):
     def test_running_request_shows_progress_and_blocks_a_second(self):
         request = MenuRequest.objects.create(week=WEEK, status="running", slots=[])
         page = self.client.get(reverse("meals:menu_of", args=[WEEK.isoformat()]))
-        self.assertContains(page, "Creating the menu for this week")
+        self.assertContains(page, "Create menu in progress")
         response = self.client.get(reverse("meals:menu_create", args=[WEEK.isoformat()]))
         self.assertRedirects(response, reverse("meals:menu_request", args=[request.pk]))
         state = self.client.get(reverse("meals:menu_request_status", args=[request.pk])).json()
@@ -323,3 +323,163 @@ class ScalingTests(TestCase):
         self.assertEqual(items["Beans"].quantity, "2 can")  # 1.5 rounded up
         self.assertEqual(items["Mince"].quantity, "375 g")
         self.assertEqual(items["Cumin"].quantity, "0.8 tsp")
+
+
+
+@override_settings(OPENAI_API_KEY="test-key", AI_MODEL="gpt-5.4-mini", AI_EFFORT="medium", TIME_ZONE="Europe/Berlin")
+class ChangeMenuTests(TestCase):
+    """Change menu, replacing one dish, and the week page around them."""
+
+    def setUp(self):
+        self.client.force_login(User.objects.create_user(email="parent@example.com"))
+        self.ana = FamilyMember.objects.create(name="Ana")
+        self.leo = FamilyMember.objects.create(name="Leo", kind="child")
+        patcher = mock.patch.object(planner, "start", side_effect=lambda request: planner.run(request.pk))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.today = date(2026, 10, 4)  # a Sunday, so the week of 5 Oct is in the future
+        patcher = mock.patch("django.utils.timezone.localdate", return_value=self.today)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _fake(self, *replies):
+        fake = FakeOpenAI(*replies)
+        patcher = mock.patch.object(planner, "get_client", return_value=fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return fake
+
+    def _created_week(self):
+        """A week created earlier, with its 'About this menu'."""
+        MenuRequest.objects.create(week=WEEK, kind="create", status="done", summary="Original summary.", slots=[])
+        stew = Dish.objects.create(name="Stew")
+        tuesday = PlannedMeal.objects.create(date="2026-10-06", dish=Dish.objects.create(name="Tacos"))
+        tuesday.eaters.set([self.ana])
+        saturday = PlannedMeal.objects.create(date="2026-10-10", dish=stew, servings=8)
+        sunday = PlannedMeal.objects.create(date="2026-10-11", slot="lunch", dish=stew, leftovers=True)
+        return tuesday, saturday, sunday
+
+    def test_week_page_layout(self):
+        self._created_week()
+        page = self.client.get(reverse("meals:menu_of", args=[WEEK.isoformat()]))
+        content = page.content.decode()
+        self.assertNotContains(page, "Plan with AI")
+        self.assertNotContains(page, "✨ Create menu")
+        # Change menu after the meal count, then the folded "About this menu".
+        self.assertLess(content.index("meals planned this week"), content.index("✨ Change menu"))
+        self.assertLess(content.index("✨ Change menu"), content.index("About this menu"))
+        self.assertIn('<details class="card about-menu">', content)
+        self.assertIn("Original summary.", content)
+
+    def test_empty_week_shows_create_menu_at_the_top(self):
+        page = self.client.get(reverse("meals:menu_of", args=["2026-10-12"]))
+        self.assertContains(page, "✨ Create menu")
+        self.assertNotContains(page, "Change menu")
+
+    def test_change_menu_ticks_all_meals_and_replaces_by_default(self):
+        self._created_week()
+        response = self.client.get(reverse("meals:menu_create", args=[WEEK.isoformat()]))
+        self.assertTrue(response.context["changing"])
+        self.assertFalse(response.context["keep_existing"])
+        self.assertContains(response, '<input type="checkbox" name="replace" checked>')
+        rows = {r["key"]: {s["slot"]: s for s in r["slots"]} for r in response.context["rows"]}
+        tuesday = rows["2026-10-06"]["dinner"]
+        self.assertTrue(tuesday["on"])
+        self.assertEqual([e["eats"] for e in tuesday["members"]], [True, False])  # planned for Ana only
+        self.assertTrue(rows["2026-10-11"]["lunch"]["on"])
+
+    def test_past_days_start_unticked(self):
+        self._created_week()
+        with mock.patch("django.utils.timezone.localdate", return_value=date(2026, 10, 8)):  # Thursday
+            response = self.client.get(reverse("meals:menu_create", args=[WEEK.isoformat()]))
+        rows = {r["key"]: {s["slot"]: s["on"] for s in r["slots"]} for r in response.context["rows"]}
+        self.assertEqual(rows["2026-10-06"], {"lunch": False, "dinner": False})  # Tuesday's tacos were eaten
+        self.assertTrue(rows["2026-10-10"]["dinner"])
+        self.assertTrue(rows["2026-10-11"]["lunch"])
+
+    def test_change_menu_keeps_about_this_menu(self):
+        self._created_week()
+        self._fake(reply(tool_call({"summary": "A new summary.", "meals": [meal("2026-10-06", "dinner", "Soup")]})))
+        self.client.post(reverse("meals:menu_create", args=[WEEK.isoformat()]), {
+            "2026-10-06-dinner-on": "on", "2026-10-06-dinner-eaters": [str(self.ana.pk)], "replace": "on",
+        })
+        self.assertEqual(MenuRequest.objects.first().kind, "change")
+        self.assertEqual(PlannedMeal.objects.get(date="2026-10-06").dish.name, "Soup")
+        page = self.client.get(reverse("meals:menu_of", args=[WEEK.isoformat()]))
+        self.assertContains(page, "Original summary.")
+        self.assertNotContains(page, "A new summary.")
+
+    def test_replace_button_only_from_today(self):
+        tuesday, *_ = self._created_week()
+        past = PlannedMeal.objects.create(date="2026-10-02", dish=Dish.objects.create(name="Old"))
+        self.assertContains(self.client.get(reverse("meals:menu_of", args=[WEEK.isoformat()])),
+                            reverse("meals:meal_replace", args=[tuesday.pk]))
+        self.assertNotContains(self.client.get(reverse("meals:menu_of", args=["2026-09-28"])),
+                               reverse("meals:meal_replace", args=[past.pk]))
+
+    def test_replace_dish_with_reason(self):
+        tuesday, *_ = self._created_week()
+        response = self.client.get(reverse("meals:meal_replace", args=[tuesday.pk]))
+        self.assertContains(response, "Why do you want to replace it?")
+        fake = self._fake(reply(tool_call({"summary": "x", "meals": [meal("2026-10-06", "dinner", "Fish pie")]})))
+        self.client.post(reverse("meals:meal_replace", args=[tuesday.pk]), {"reason": "We had tacos on Friday"})
+        request = MenuRequest.objects.first()
+        self.assertEqual((request.kind, request.replacing, request.keep_existing), ("replace", "Tacos", False))
+        self.assertEqual(request.slots, [{"date": "2026-10-06", "slot": "dinner", "eaters": [self.ana.pk]}])
+        self.assertEqual(PlannedMeal.objects.get(date="2026-10-06").dish.name, "Fish pie")
+        self.assertEqual(PlannedMeal.objects.count(), 3)  # the rest of the week is untouched
+        prompt = fake.requests[0]["input"][0]["content"]
+        self.assertIn('instead of "Tacos"', prompt)
+        self.assertIn("Their reason: We had tacos on Friday", prompt)
+        self.assertIn("Sat 10 Oct dinner: Stew", prompt)  # the current menu is sent as context
+        self.assertNotIn("## Notes for this week", prompt)
+        page = self.client.get(reverse("meals:menu_of", args=[WEEK.isoformat()]))
+        self.assertContains(page, "Original summary.")
+
+    def test_replacing_a_dish_includes_its_leftovers(self):
+        _, saturday, sunday = self._created_week()
+        self._fake(reply(tool_call({"summary": "x", "meals": [
+            meal("2026-10-10", "dinner", "Lasagne", servings=8), meal("2026-10-11", "lunch", "Lasagne", leftovers=True),
+        ]})))
+        self.client.post(reverse("meals:meal_replace", args=[saturday.pk]), {"reason": ""})
+        request = MenuRequest.objects.first()
+        self.assertEqual([(s["date"], s["slot"]) for s in request.slots], [("2026-10-10", "dinner"), ("2026-10-11", "lunch")])
+        self.assertEqual(
+            sorted(PlannedMeal.objects.filter(date__gte="2026-10-10").values_list("dish__name", "leftovers")),
+            [("Lasagne", False), ("Lasagne", True)],
+        )
+        self.assertEqual(Dish.objects.get(name="Stew").planned.count(), 0)
+
+
+@override_settings(OPENAI_API_KEY="test-key", TIME_ZONE="Europe/Berlin")
+class RecipeSitesTests(TestCase):
+    def setUp(self):
+        self.request = MenuRequest.objects.create(week=WEEK, slots=[{"date": "2026-10-05", "slot": "dinner", "eaters": []}])
+
+    def _household(self, sites, other):
+        household = Household.load()
+        household.recipe_sites, household.other_sites = sites, other
+        household.save()
+        return household
+
+    def test_domains_are_parsed_from_lines_and_urls(self):
+        self.assertEqual(
+            planner.recipe_domains("https://www.bbcgoodfood.com/recipes\nchefkoch.de, jamieoliver.com\n\nnot a site"),
+            ["bbcgoodfood.com", "chefkoch.de", "jamieoliver.com"],
+        )
+
+    def test_sites_and_frequency_go_into_the_prompt(self):
+        self._household("bbcgoodfood.com\nchefkoch.de", "rarely")
+        prompt = planner.build_prompt(self.request)
+        self.assertIn("Recipe websites to search first: bbcgoodfood.com, chefkoch.de", prompt)
+        self.assertIn("Recipes from other websites: Rarely – about one recipe a week", prompt)
+        self.assertNotIn("filters", planner.web_search_tool(Household.load()))
+
+    def test_never_limits_the_search_to_those_sites(self):
+        household = self._household("bbcgoodfood.com\nchefkoch.de", "never")
+        self.assertEqual(planner.web_search_tool(household)["filters"], {"allowed_domains": ["bbcgoodfood.com", "chefkoch.de"]})
+
+    def test_no_sites_no_mention(self):
+        household = self._household("", "never")
+        self.assertNotIn("Recipe websites", planner.build_prompt(self.request))
+        self.assertNotIn("filters", planner.web_search_tool(household))

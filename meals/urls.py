@@ -11,6 +11,7 @@ urlpatterns = [
     path("meal/new/", views.meal_edit, name="meal_new"),
     path("meal/<int:pk>/", views.meal_edit, name="meal"),
     path("meal/<int:pk>/feedback/", views.feedback, name="feedback"),
+    path("meal/<int:pk>/replace/", views.meal_replace, name="meal_replace"),
     path("meal/<int:pk>/feedback/quick/", views.feedback_quick, name="feedback_quick"),
     path("shopping/", views.shopping, name="shopping"),
     path("shopping/<str:day>/", views.shopping, name="shopping_of"),

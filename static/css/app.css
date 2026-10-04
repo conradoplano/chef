@@ -127,7 +127,8 @@ button, .btn {
   text-align: center;
   min-height: 2.75rem;
 }
-button.wide { width: 100%; }
+button.wide, .btn.wide { width: 100%; }
+.btn.wide { display: block; }
 button.ghost, .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--border); }
 button.link { background: none; color: var(--accent); padding: 0; min-height: 0; font-weight: 400; }
 button.danger { background: transparent; color: var(--neg); border: 1px solid var(--border); }
@@ -325,3 +326,10 @@ a.badge.use:hover { color: var(--fg); }
 .field.chips > div > div label { display: inline-flex; gap: .35rem; align-items: center; font-weight: 400; padding: .2rem .65rem; border: 1px solid var(--border); border-radius: 999px; background: var(--card); }
 .field.chips > div > div label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .servings-field input { max-width: 7rem; }
+.card-actions { display: inline-flex; gap: .1rem; position: relative; z-index: 1; }
+/* Swiping between weeks: the page slides away while the next week loads. */
+main.swipe-next, main.swipe-prev { transition: transform .18s ease-out, opacity .18s ease-out; opacity: .4; }
+main.swipe-next { transform: translateX(-30%); }
+main.swipe-prev { transform: translateX(30%); }
+@media (prefers-reduced-motion: reduce) { main.swipe-next, main.swipe-prev { transition: none; transform: none; } }
+body { overflow-x: hidden; }

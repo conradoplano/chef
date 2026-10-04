@@ -4,7 +4,10 @@
   <div class="meal-main">
     <div class="meal-head">
       <span class="slot-label">{{ m.get_slot_display }}</span>
-      <a class="icon-btn" href="{% url 'meals:meal' m.pk %}{% if return_to %}?next={{ return_to|urlencode }}{% endif %}" aria-label="Change this meal" title="Change this meal">✎</a>
+      <span class="card-actions">
+        {% if m.can_replace %}<a class="icon-btn" href="{% url 'meals:meal_replace' m.pk %}" aria-label="Replace with another dish" title="Replace with another dish">↻</a>{% endif %}
+        <a class="icon-btn" href="{% url 'meals:meal' m.pk %}{% if return_to %}?next={{ return_to|urlencode }}{% endif %}" aria-label="Change this meal" title="Change this meal">✎</a>
+      </span>
     </div>
     <div class="meal-title">
       {% if recipe %}

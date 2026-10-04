@@ -6,17 +6,12 @@
   {% include "meals/_weeknav.html" with url_of="meals:menu_of" %}
 
   {% if menu_request and not menu_request.finished %}
-    <a class="flash planning-bar" href="{% url 'meals:menu_request' menu_request.pk %}">🍳 Creating the menu for this week… <strong>See progress</strong></a>
-  {% else %}
-    {% if menu_request.status == "done" and menu_request.summary %}
-      <details class="card about-menu"{% if about_open %} open{% endif %}>
-        <summary>✨ About this menu</summary>
-        <p>{{ menu_request.summary|linebreaksbr }}</p>
-      </details>
-    {% elif menu_request.status == "failed" %}
-      <div class="flash error small">Creating the menu didn't work: {{ menu_request.error }}</div>
-    {% endif %}
-    <a class="btn {% if meal_count %}ghost {% endif %}wide create-menu" href="{% url 'meals:menu_create' start.isoformat %}">✨ {% if meal_count %}Plan with AI{% else %}Create menu{% endif %}</a>
+    <a class="flash planning-bar" href="{% url 'meals:menu_request' menu_request.pk %}">🍳 {{ menu_request.get_kind_display }} in progress… <strong>See progress</strong></a>
+  {% elif menu_request.status == "failed" %}
+    <div class="flash error small">{{ menu_request.get_kind_display }} didn't work: {{ menu_request.error }}</div>
+  {% endif %}
+  {% if not meal_count and not menu_request or not meal_count and menu_request.finished %}
+    <a class="btn wide create-menu" href="{% url 'meals:menu_create' start.isoformat %}">✨ Create menu</a>
   {% endif %}
 
   {% for d in days %}
@@ -25,5 +20,14 @@
 
   {% if meal_count %}
     <p class="muted small center">{{ meal_count }} meal{{ meal_count|pluralize }} planned this week</p>
+    {% if not menu_request or menu_request.finished %}
+      <a class="btn ghost wide create-menu" href="{% url 'meals:menu_create' start.isoformat %}">✨ Change menu</a>
+    {% endif %}
+  {% endif %}
+  {% if about %}
+    <details class="card about-menu">
+      <summary>✨ About this menu</summary>
+      <p>{{ about.summary|linebreaksbr }}</p>
+    </details>
   {% endif %}
 {% endblock %}

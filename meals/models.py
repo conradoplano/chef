@@ -189,6 +189,20 @@ class Household(models.Model):
     shops = models.TextField("where we shop", blank=True)
     priority = models.CharField("optimise for", max_length=12, choices=Priority.choices, default=Priority.BALANCED)
     pantry = models.TextField("pantry staples", blank=True, help_text="Things we always have; left off the shopping list.")
+
+    class OtherSites(models.TextChoices):
+        NEVER = "never", "Never – only the sites above"
+        RARELY = "rarely", "Rarely – about one recipe a week"
+        SOMETIMES = "sometimes", "Sometimes – about a third of the recipes"
+        OFTEN = "often", "Often – whenever another site has a better recipe"
+
+    recipe_sites = models.TextField(
+        "recipe websites", blank=True,
+        help_text="One per line, e.g. bbcgoodfood.com. Searched first when creating a menu.",
+    )
+    other_sites = models.CharField(
+        "recipes from other websites", max_length=10, choices=OtherSites.choices, default=OtherSites.SOMETIMES
+    )
     # Which meals we usually need and who eats them, by weekday ("0" = Monday):
     # {"0": {"lunch": {"on": false, "eaters": [ids]}, "dinner": {...}}, ...}. See meals.schedule.
     usual_week = models.JSONField(default=dict, blank=True)
@@ -281,7 +295,15 @@ class MenuRequest(models.Model):
         DONE = "done", "Done"
         FAILED = "failed", "Failed"
 
+    class Kind(models.TextChoices):
+        CREATE = "create", "Create menu"
+        CHANGE = "change", "Change menu"
+        REPLACE = "replace", "Replace a dish"
+
     week = models.DateField(help_text="Monday of the week.")
+    # Only "create" requests write the week's "About this menu".
+    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.CREATE)
+    replacing = models.CharField(max_length=200, blank=True, help_text="Dish being replaced, for 'replace' requests.")
     # [{"date": "2026-10-05", "slot": "dinner", "eaters": [member ids]}, ...]
     slots = models.JSONField(default=list)
     keep_existing = models.BooleanField(default=True, help_text="Keep meals that are already planned.")

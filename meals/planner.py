@@ -10,6 +10,7 @@ follows automatically.
 """
 import json
 import logging
+import re
 import threading
 from datetime import date, timedelta
 from decimal import Decimal
@@ -37,7 +38,7 @@ How to plan:
 - Pay close attention to the notes for this week.
 
 Recipes:
-- Use web search to find a real recipe page for each new dish, preferably from well-known recipe sites. Only use URLs that appeared in your search results; if you can't find a good one, leave recipe_url empty. Dishes listed with a recipe link in the history can keep that link without searching.
+- Use web search to find a real recipe page for each new dish. If the household lists recipe websites, search those first and use other sites only as often as the household setting allows; otherwise prefer well-known recipe sites. Only use URLs that appeared in your search results; if you can't find a good one, leave recipe_url empty. Dishes listed with a recipe link in the history can keep that link without searching.
 - Keep searching efficient: a few targeted searches, not one per ingredient.
 
 Ingredients:
@@ -101,9 +102,24 @@ SAVE_MENU_TOOL = {
     },
 }
 
-def web_search_tool():
+def recipe_domains(text):
+    """Domains from the household's recipe websites: one per line or comma separated, with or without https://."""
+    domains = []
+    for entry in re.split(r"[\s,;]+", text or ""):
+        entry = re.sub(r"^https?://", "", entry.strip().lower()).split("/")[0].removeprefix("www.")
+        if "." in entry and entry not in domains:
+            domains.append(entry)
+    return domains
+
+
+def web_search_tool(household):
     # Without a location the search defaults to the United States; use the app's time zone instead.
-    return {"type": "web_search", "user_location": {"type": "approximate", "timezone": settings.TIME_ZONE}}
+    tool = {"type": "web_search", "user_location": {"type": "approximate", "timezone": settings.TIME_ZONE}}
+    domains = recipe_domains(household.recipe_sites)
+    if domains and household.other_sites == Household.OtherSites.NEVER:
+        # Enforced by the search itself, not just asked for in the prompt.
+        tool["filters"] = {"allowed_domains": domains}
+    return tool
 
 
 class PlanningError(Exception):
@@ -181,6 +197,9 @@ def build_prompt(request):
             ("Where we shop", household.shops),
             ("Optimise the shopping for", household.get_priority_display()),
             ("Pantry staples we usually have", household.pantry),
+            ("Recipe websites to search first", ", ".join(recipe_domains(household.recipe_sites))),
+            ("Recipes from other websites",
+             recipe_domains(household.recipe_sites) and household.get_other_sites_display()),
         ]
         if value
     ]
@@ -230,7 +249,14 @@ def build_prompt(request):
         people = ", ".join(f"{m.name} ({m.get_kind_display().lower()})" for m in who) or "the family"
         out.append(f"- {day:%A} {slot['date']} {slot['slot']}: {len(who) or 'all'} eating - {people}")
 
-    if request.details.strip():
+    if request.kind == MenuRequest.Kind.REPLACE:
+        out.append("\n## Change requested")
+        out.append(
+            f"The family wants a different dish instead of \"{request.replacing}\" (listed under Meals to plan). "
+            "Suggest something else that fits the rest of the week; don't plan the same dish again."
+        )
+        out.append(f"Their reason: {request.details.strip() or '(no reason given)'}")
+    elif request.details.strip():
         out.append("\n## Notes for this week")
         out.append(request.details.strip())
     return "\n".join(out)
@@ -247,6 +273,7 @@ def to_plan(request, taken=frozenset()):
 def ask_model(prompt):
     """Runs the request until the model calls save_menu. Returns (function arguments, usage totals)."""
     client = get_client()
+    household = Household.load()
     usage = {"input": 0, "output": 0}
     previous_id = None
     next_input = [{"role": "user", "content": prompt}]
@@ -256,7 +283,7 @@ def ask_model(prompt):
             model=settings.AI_MODEL,
             instructions=SYSTEM_PROMPT,
             input=next_input,
-            tools=[web_search_tool(), SAVE_MENU_TOOL],
+            tools=[web_search_tool(household), SAVE_MENU_TOOL],
             tool_choice="auto",
             reasoning={"effort": settings.AI_EFFORT},
             max_output_tokens=64000,

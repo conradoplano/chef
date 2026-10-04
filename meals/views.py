@@ -88,6 +88,7 @@ def planned_meals(start, end, today):
         meal.review = getattr(meal, "feedback", None)
         # Feedback once it has been eaten; leftovers share the feedback of the day it was cooked.
         meal.can_review = meal.date <= today and not meal.leftovers
+        meal.can_replace = meal.date >= today
         shared = meal.review.shared_rating if meal.review else ""
         meal.quick_ratings = [
             {"value": value, "emoji": Feedback.EMOJI[value], "label": label.split(" ", 1)[1], "on": value == shared}
@@ -125,6 +126,11 @@ def home(request):
     hour = timezone.localtime().hour
     greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
     sunday = week_start(today) + timedelta(days=6)
+    if today < sunday:
+        coming, coming_title, coming_week = days_with_meals(today + timedelta(days=1), sunday, today), "Rest of the week", week_start(today)
+    else:
+        # On Sundays, look ahead to the next working week.
+        coming, coming_title, coming_week = days_with_meals(today + timedelta(days=1), today + timedelta(days=5), today), "Next week", today + timedelta(days=1)
     return render(
         request,
         "meals/home.html",
@@ -132,8 +138,9 @@ def home(request):
             "today": today,
             "greeting": greeting,
             "meals": planned_meals(today, today, today),
-            "rest_of_week": days_with_meals(today + timedelta(days=1), sunday, today) if today < sunday else [],
-            "next_week": sunday + timedelta(days=1),
+            "coming": coming,
+            "coming_title": coming_title,
+            "coming_week": coming_week,
         },
     )
 
@@ -146,9 +153,13 @@ def menu(request, day=None):
     context["meal_count"] = sum(len(d["meals"]) for d in context["days"])
     planner.expire_stale()
     context["ai_enabled"] = planner.enabled()
-    context["menu_request"] = latest = MenuRequest.objects.filter(week=start).first()
-    # Show the summary unfolded right after the menu was created.
-    context["about_open"] = bool(latest and latest.finished_at and timezone.now() - latest.finished_at < timedelta(hours=1))
+    context["menu_request"] = MenuRequest.objects.filter(week=start).first()
+    # "About this menu" comes from the last time the menu was created, not from later changes.
+    context["about"] = (
+        MenuRequest.objects.filter(week=start, kind=MenuRequest.Kind.CREATE, status=MenuRequest.Status.DONE)
+        .exclude(summary="")
+        .first()
+    )
     return render(request, "meals/menu.html", context)
 
 
@@ -365,6 +376,8 @@ def family(request):
                     ("shops", household.shops),
                     ("priority", household.get_priority_display()),
                     ("pantry", household.pantry),
+                    ("recipe_sites", household.recipe_sites),
+                    ("other_sites", household.recipe_sites and household.get_other_sites_display()),
                 ]
                 if value
             ],
@@ -456,9 +469,15 @@ def menu_create(request, day):
 
     members = list(FamilyMember.objects.all())
     keys = schedule.week_keys(start)
-    existing = list(PlannedMeal.objects.filter(date__range=(start, start + timedelta(days=6))).select_related("dish"))
+    existing = list(
+        PlannedMeal.objects.filter(date__range=(start, start + timedelta(days=6)))
+        .select_related("dish")
+        .prefetch_related("eaters")
+    )
+    # With meals already planned this is "Change menu": by default everything is planned anew.
+    changing = bool(existing)
     details = request.POST.get("details", "")
-    keep_existing = request.POST.get("replace") != "on" if request.method == "POST" else True
+    keep_existing = request.POST.get("replace") != "on" if request.method == "POST" else not changing
     if request.method == "POST":
         grid, errors = schedule.parse_grid(request.POST, keys, members)
         slots = [
@@ -474,6 +493,7 @@ def menu_create(request, day):
         if not errors:
             menu_request = MenuRequest.objects.create(
                 week=start, slots=slots, keep_existing=keep_existing, details=details.strip(),
+                kind=MenuRequest.Kind.CHANGE if changing else MenuRequest.Kind.CREATE,
                 created_by=request.user,
             )
             planner.start(menu_request)
@@ -482,11 +502,25 @@ def menu_create(request, day):
             messages.error(request, error)
     else:
         usual = schedule.usual_week(members)
-        grid = {key: usual[i] for i, (key, _) in enumerate(keys)}
+        grid = {key: {slot: dict(entry) for slot, entry in usual[i].items()} for i, (key, _) in enumerate(keys)}
+        for meal in existing:
+            # Every planned meal is ticked, for the people it was planned for.
+            entry = grid[meal.date.isoformat()][meal.slot]
+            entry["on"] = True
+            eaters = [m.pk for m in meal.eaters.all()]
+            if eaters:
+                entry["eaters"] = eaters
+        # Days already past start unticked, so eaten meals (and their feedback) aren't replaced by accident.
+        today = timezone.localdate()
+        for key, _ in keys:
+            if date.fromisoformat(key) < today:
+                for entry in grid[key].values():
+                    entry["on"] = False
     return render(
         request,
         "meals/menu_create.html",
         {
+            "changing": changing,
             "start": start,
             "end": start + timedelta(days=6),
             "rows": schedule.rows(keys, grid, members),
@@ -518,3 +552,45 @@ def menu_request_status(request, pk):
         "error": menu_request.error,
         "url": reverse("meals:menu_of", args=[menu_request.week.isoformat()]),
     })
+
+
+@login_required
+def meal_replace(request, pk):
+    """Asks the AI for a different dish for one meal, keeping the rest of the week."""
+    meal = get_object_or_404(PlannedMeal.objects.select_related("dish").prefetch_related("eaters"), pk=pk)
+    start = week_start(meal.date)
+    planner.expire_stale()
+    running = MenuRequest.objects.filter(
+        week=start, status__in=[MenuRequest.Status.PENDING, MenuRequest.Status.RUNNING]
+    ).first()
+    if running:
+        return redirect("meals:menu_request", pk=running.pk)
+    if request.method == "POST":
+        if not planner.enabled():
+            messages.error(request, "Menu planning with AI isn't set up yet (OPENAI_API_KEY is missing).")
+            return redirect("meals:menu_of", day=meal.date.isoformat())
+        # Leftovers of this dish later in the week go with it.
+        meals = [meal]
+        if not meal.leftovers:
+            meals += list(
+                PlannedMeal.objects.filter(
+                    dish=meal.dish, leftovers=True, date__gt=meal.date, date__lte=start + timedelta(days=6)
+                ).prefetch_related("eaters")
+            )
+        usual = schedule.usual_week(list(FamilyMember.objects.all()))
+        slots = [
+            {
+                "date": m.date.isoformat(),
+                "slot": m.slot,
+                "eaters": [e.pk for e in m.eaters.all()] or usual[m.date.weekday()][m.slot]["eaters"],
+            }
+            for m in meals
+        ]
+        menu_request = MenuRequest.objects.create(
+            week=start, kind=MenuRequest.Kind.REPLACE, slots=slots, keep_existing=False,
+            replacing=meal.dish.name, details=request.POST.get("reason", "").strip()[:1000],
+            created_by=request.user,
+        )
+        planner.start(menu_request)
+        return redirect("meals:menu_request", pk=menu_request.pk)
+    return render(request, "meals/meal_replace.html", {"meal": meal, "ai_enabled": planner.enabled()})

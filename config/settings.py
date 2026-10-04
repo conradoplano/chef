@@ -144,7 +144,7 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "chef@localhost")
 
 # AI menu planning (OpenAI). Without an API key the "Create menu" feature is switched off.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-AI_MODEL = os.environ.get("AI_MODEL", "gpt-6.1-sol")
+AI_MODEL = os.environ.get("AI_MODEL", "gpt-5.4-mini")
 AI_EFFORT = os.environ.get("AI_EFFORT", "medium")
 
 LOGGING = {

@@ -163,6 +163,7 @@ class FamilyTests(TestCase):
     def test_household_edit(self):
         response = self.client.post(reverse("meals:household"), {
             "weekday_minutes": "30", "adventurousness": "6", "priority": "waste", "pantry": "Olive oil\nRice",
+            "recipe_sites": "bbcgoodfood.com", "other_sites": "rarely",
         })
         self.assertRedirects(response, reverse("meals:family"))
         household = Household.load()
@@ -171,6 +172,7 @@ class FamilyTests(TestCase):
         self.assertContains(page, "30 min")
         self.assertContains(page, "6 / 10")
         self.assertContains(page, "Olive oil<br>Rice")
+        self.assertContains(page, "Rarely – about one recipe a week")
 
     def test_household_form_leaves_usual_week_alone(self):
         household = Household.load()
@@ -178,7 +180,7 @@ class FamilyTests(TestCase):
         household.save()
         response = self.client.get(reverse("meals:household"))
         self.assertNotContains(response, "usual_week")
-        self.client.post(reverse("meals:household"), {"weekday_minutes": "25", "priority": "balanced"})
+        self.client.post(reverse("meals:household"), {"weekday_minutes": "25", "priority": "balanced", "other_sites": "sometimes"})
         household.refresh_from_db()
         self.assertEqual(household.weekday_minutes, 25)
         self.assertEqual(household.usual_week, {"0": {"dinner": {"on": True, "eaters": []}}})
@@ -593,7 +595,7 @@ class HomeRestOfWeekTests(TestCase):
     def test_shows_remaining_days_after_today(self):
         response = self._home(date(2026, 9, 30))
         content = response.content.decode()
-        self.assertEqual([d["date"] for d in response.context["rest_of_week"]],
+        self.assertEqual([d["date"] for d in response.context["coming"]],
                          [date(2026, 10, d) for d in (1, 2, 3, 4)])
         self.assertLess(content.index("Today tofu"), content.index("Rest of the week"))
         self.assertLess(content.index("Rest of the week"), content.index("Thursday salmon"))
@@ -608,10 +610,13 @@ class HomeRestOfWeekTests(TestCase):
         response = self._home(date(2026, 9, 30))
         self.assertContains(response, f'{reverse("meals:meal", args=[thursday.pk])}?next=/"')
 
-    def test_sunday_links_to_next_week(self):
+    def test_sunday_shows_next_monday_to_friday(self):
         response = self._home(date(2026, 10, 4))
-        self.assertEqual(response.context["rest_of_week"], [])
+        self.assertEqual([d["date"] for d in response.context["coming"]],
+                         [date(2026, 10, d) for d in (5, 6, 7, 8, 9)])
+        self.assertContains(response, "Next week")
         self.assertNotContains(response, "Rest of the week")
+        self.assertContains(response, "Next week pizza")
         self.assertContains(response, reverse("meals:menu_of", args=["2026-10-05"]))
 
 
@@ -649,3 +654,15 @@ class SelectedWeekTests(TestCase):
 
     def test_without_a_selection_shows_the_current_week(self):
         self.assertEqual(self._get("meals:menu").context["start"], date(2026, 9, 28))
+
+
+class SwipeTests(TestCase):
+    def setUp(self):
+        self.client.force_login(User.objects.create_user(email="parent@example.com"))
+
+    def test_menu_and_shopping_have_swipe_targets(self):
+        for name in ["meals:menu_of", "meals:shopping_of"]:
+            response = self.client.get(reverse(name, args=["2026-10-07"]))
+            self.assertContains(response, f'id="week-prev" href="{reverse(name, args=["2026-09-28"])}"')
+            self.assertContains(response, f'id="week-next" href="{reverse(name, args=["2026-10-12"])}"')
+            self.assertContains(response, "addEventListener('touchend'")

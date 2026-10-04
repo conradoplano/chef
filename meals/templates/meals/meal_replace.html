@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Replace dish · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <h2>↻ Replace dish</h2>
+  <p class="muted">{{ meal.dish.icon }} {% if meal.leftovers %}Leftover {{ meal.dish.name|lower }}{% else %}{{ meal.dish.name }}{% endif %} · {{ meal.get_slot_display|lower }} on {{ meal.date|date:"l j M" }}</p>
+  {% if not ai_enabled %}
+    <div class="flash error">Menu planning with AI isn't set up yet: add <code>OPENAI_API_KEY</code> to the app's settings (see the README).</div>
+  {% endif %}
+  <form method="post" class="card stack">
+    {% csrf_token %}
+    <div class="field">
+      <label for="reason">Why do you want to replace it?</label>
+      <textarea id="reason" name="reason" rows="3" autofocus placeholder="E.g. we had something similar last week, Laura isn't keen on mushrooms, we need something quicker on Thursday"></textarea>
+      <p class="muted small">A new dish is suggested for this meal; the rest of the week stays as it is.</p>
+    </div>
+    <button class="wide" type="submit"{% if not ai_enabled %} disabled{% endif %}>↻ Find another dish</button>
+  </form>
+  <p class="center"><a href="{% url 'meals:menu_of' meal.date.isoformat %}">Cancel</a></p>
+{% endblock %}

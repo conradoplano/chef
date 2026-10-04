@@ -39,5 +39,5 @@ services:
       LOGIN_CODE_MAX_AGE: "600"
       # AI menu planning (platform.openai.com/api-keys); empty switches it off
       OPENAI_API_KEY: ""
-      AI_MODEL: "gpt-6.1-sol"
+      AI_MODEL: "gpt-5.4-mini"
       AI_EFFORT: "medium"
