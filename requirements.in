@@ -1,7 +1,7 @@
 # Direct dependencies with allowed ranges. requirements.txt pins the exact versions of everything
 # (including dependencies of these) that the image is built with; update it after changing this file:
 #   pip install -r requirements.in && pip freeze > requirements.txt  (then re-add the comment and tzdata line)
-Django>=5.2,<6.0
+Django>=6.1.1,<7.0
 gunicorn>=23.0
 whitenoise>=6.7
 openai>=3.24,<4
