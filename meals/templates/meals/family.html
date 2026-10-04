@@ -4,7 +4,7 @@
 
 {% block content %}
   <h2>⚙ Settings</h2>
-  <p class="muted small">Your family, usual week, rules and household. Everything here is taken into account when a menu is created.</p>
+  <p class="muted small">Your family, usual week, rules, what's always at home and how menus are created. Everything here is taken into account when a menu is created.</p>
 
   <section class="card">
     <div class="line section-head">
@@ -63,19 +63,47 @@
     {{ rule_form.text.errors }}
   </section>
 
+  <section class="card" id="staples">
+    <h3>🏠 Always at home</h3>
+    <p class="muted small">Staples we usually have. On the shopping list they move to “Check at home”.</p>
+    {% for list in staples %}
+      <div class="staple-list">
+        <h4>{{ list.icon }} {{ list.label }}</h4>
+        {% if list.items %}
+          <ul class="pantry-list">
+            {% for item in list.items %}
+              <li>
+                <span>{{ item }}</span>
+                <form method="post" action="{% url 'meals:staple_remove' %}" class="inline">
+                  {% csrf_token %}<input type="hidden" name="list" value="{{ list.kind }}"><input type="hidden" name="name" value="{{ item }}">
+                  <button type="submit" class="link small danger" aria-label="Remove {{ item }} from the {{ list.label|lower }} list">✕</button>
+                </form>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        <form method="post" action="{% url 'meals:staple_add' %}" class="add-rule">
+          {% csrf_token %}<input type="hidden" name="list" value="{{ list.kind }}">
+          <input type="text" name="name" placeholder="E.g. {{ list.example }}" maxlength="100" required aria-label="Add to the {{ list.label|lower }} list">
+          <button type="submit">Add</button>
+        </form>
+      </div>
+    {% endfor %}
+  </section>
+
   <section class="card">
     <div class="line section-head">
-      <h3>Household</h3>
+      <h3>Menu creation</h3>
       <a class="btn ghost small" href="{% url 'meals:household' %}">Edit</a>
     </div>
     {% if household_rows %}
-      <table class="kv">
+      <table class="kv wrap">
         {% for label, value in household_rows %}
           <tr><td class="muted">{{ label|capfirst }}</td><td>{{ value|linebreaksbr }}</td></tr>
         {% endfor %}
       </table>
     {% else %}
-      <p class="muted">How we cook and shop: cooking times, how adventurous, cuisines, equipment, shops and pantry staples.</p>
+      <p class="muted">How menus are put together: cooking times, how adventurous, cuisines, equipment, shops and recipe sources.</p>
     {% endif %}
   </section>
 

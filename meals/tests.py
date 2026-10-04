@@ -180,7 +180,7 @@ class FamilyTests(TestCase):
 
     def test_household_edit(self):
         response = self.client.post(reverse("meals:household"), {
-            "weekday_minutes": "30", "adventurousness": "6", "priority": "waste", "pantry": "Olive oil\nRice",
+            "weekday_minutes": "30", "adventurousness": "6", "priority": "waste",
             "recipe_sites": "bbcgoodfood.com", "other_sites": "rarely",
         })
         self.assertRedirects(response, reverse("meals:family"))
@@ -189,7 +189,7 @@ class FamilyTests(TestCase):
         page = self.client.get(reverse("meals:family"))
         self.assertContains(page, "30 min")
         self.assertContains(page, "6 / 10")
-        self.assertContains(page, "Olive oil<br>Rice")
+        self.assertContains(page, "Menu creation")
         self.assertContains(page, "Rarely – about one recipe a week")
 
     def test_household_form_leaves_usual_week_alone(self):
@@ -868,3 +868,107 @@ class SettingsPageTests(TestCase):
         self.client.force_login(User.objects.create_user(email="parent@example.com"))
         self.assertEqual(reverse("meals:family"), "/settings/")
         self.assertRedirects(self.client.get("/family/"), "/settings/", status_code=301)
+
+
+class StapleTests(TestCase):
+    """Pantry and freezer staples: managed in settings, added and removed from the shopping list."""
+
+    def setUp(self):
+        self.client.force_login(User.objects.create_user(email="parent@example.com"))
+        dish = Dish.objects.create(name="Risotto")
+        for name, category in [("Arborio rice", "pantry"), ("Stock", "pantry"), ("Mushrooms", "vegetables"),
+                               ("Frozen peas", "frozen"), ("Soy sauce", "speciality"), ("Extra virgin olive oil", "pantry")]:
+            dish.ingredients.create(name=name, quantity=1, unit="pcs", category=category)
+        PlannedMeal.objects.create(date=date(2026, 10, 5), dish=dish)
+        self.url = reverse("meals:shopping_of", args=["2026-10-05"])
+
+    def _post(self, view, **data):
+        return self.client.post(reverse(f"meals:{view}") + f"?next={self.url}", data, follow=True)
+
+    def test_buttons_by_section(self):
+        page = self.client.get(self.url)
+        self.assertContains(page, 'id="hide-pantry"')
+        self.assertContains(page, ">Hide staples</button>")
+        # Pantry and speciality items go to the pantry, frozen ones to the freezer; fresh food gets nothing.
+        self.assertContains(page, "🫙 Always have it", count=4)
+        self.assertContains(page, "❄️ Always in the freezer", count=1)
+
+    def test_add_to_pantry_and_freezer(self):
+        response = self._post("staple_add", name="Stock", list="pantry")
+        self.assertRedirects(response, self.url)
+        self.assertContains(response, "🫙 Stock is on the pantry list now.")
+        response = self._post("staple_add", name="Frozen peas", list="freezer")
+        self.assertContains(response, "❄️ Frozen peas is on the freezer list now.")
+        self.assertContains(response, "✕ Remove from pantry", count=1)
+        self.assertContains(response, "✕ Remove from freezer", count=1)
+        household = Household.load()
+        self.assertEqual((household.pantry, household.freezer), ("Stock", "Frozen peas"))
+
+    def test_remove_uses_the_staple_that_matched(self):
+        household = Household.load()
+        household.pantry = "olive oil, stock"
+        household.save()
+        page = self.client.get(self.url)
+        # "Extra virgin olive oil" is at home because of the staple "olive oil": removing removes that staple.
+        self.assertContains(page, 'name="name" value="olive oil"')
+        self._post("staple_remove", name="olive oil", list="pantry")
+        self.assertEqual(Household.load().pantry, "stock")  # also tidied into one per line
+
+    def test_settings_section(self):
+        self.client.post(reverse("meals:staple_add"), {"name": "  olive   oil ", "list": "pantry"})
+        self.client.post(reverse("meals:staple_add"), {"name": "Eggs", "list": "pantry"})
+        response = self.client.post(reverse("meals:staple_add"), {"name": "egg", "list": "pantry"}, follow=True)
+        self.assertContains(response, "egg is already on the pantry list.")
+        self.client.post(reverse("meals:staple_add"), {"name": "Ice cream", "list": "freezer"})
+        household = Household.load()
+        self.assertEqual((household.pantry, household.freezer), ("Eggs\nolive oil", "Ice cream"))
+        page = self.client.get(reverse("meals:family"))
+        self.assertContains(page, "🏠 Always at home")
+        self.assertContains(page, "<h4>🫙 Pantry</h4>")
+        self.assertContains(page, "<h4>❄️ Freezer</h4>")
+        self.assertContains(page, "<span>Ice cream</span>")
+        self.client.post(reverse("meals:staple_remove"), {"name": "Eggs", "list": "pantry"})
+        self.assertEqual(Household.load().pantry, "olive oil")
+
+    def test_staples_only_match_where_they_can_be(self):
+        dish = Dish.objects.get(name="Risotto")
+        dish.ingredients.create(name="Peppers", quantity=2, unit="pcs", category="vegetables")
+        dish.ingredients.create(name="Garlic", quantity=2, unit="clove", category="vegetables")
+        household = Household.load()
+        household.pantry = "pepper\ngarlic\nolive oil"
+        household.save()
+        sections, at_home, _ = shopping.build(date(2026, 10, 5))
+        # Fresh food only by its exact name: garlic yes, but the spice doesn't take fresh peppers off the list.
+        # In staple sections matching stays loose ("olive oil" covers "Extra virgin olive oil").
+        self.assertEqual([i.name for i in at_home], ["Extra virgin olive oil", "Garlic"])
+        self.assertIn("Peppers", [i.name for s in sections for i in s.items])
+
+    def test_unknown_list_falls_back_to_the_pantry(self):
+        self.client.post(reverse("meals:staple_add"), {"name": "Salt", "list": "garage"})
+        self.assertEqual(Household.load().pantry, "Salt")
+
+    def test_menu_creation_form_has_no_staples(self):
+        page = self.client.get(reverse("meals:household"))
+        self.assertContains(page, "<h2>Menu creation</h2>")
+        self.assertNotContains(page, 'name="pantry"')
+        self.assertNotContains(page, 'name="freezer"')
+        household = Household.load()
+        household.pantry, household.freezer = "salt", "peas"
+        household.save()
+        self.client.post(reverse("meals:household"), {"priority": "balanced", "other_sites": "sometimes"})
+        household = Household.load()
+        self.assertEqual((household.pantry, household.freezer), ("salt", "peas"))
+
+    def test_freezer_goes_into_the_ai_prompt(self):
+        from . import planner
+        from .models import MenuRequest
+
+        household = Household.load()
+        household.freezer = "fish sticks\npeas"
+        household.save()
+        request = MenuRequest.objects.create(week=date(2026, 10, 5), slots=[{"date": "2026-10-05", "slot": "dinner", "eaters": []}])
+        self.assertIn("- Usually in the freezer: fish sticks\npeas", planner.build_prompt(request))
+
+    def test_unsafe_next_is_ignored(self):
+        response = self.client.post(reverse("meals:staple_add") + "?next=https://evil.example/", {"name": "Salt"})
+        self.assertRedirects(response, reverse("meals:family") + "#staples", fetch_redirect_response=False)

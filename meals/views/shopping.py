@@ -13,7 +13,7 @@ from django.views.decorators.http import require_POST
 from .. import shopping as shopping_list
 from ..forms import ExtraItemForm
 from ..models import ExtraItem, ShoppingCheck
-from .common import parse_date, week_context, week_start
+from .common import parse_date, safe_next, week_context, week_start
 
 
 @login_required
@@ -57,6 +57,33 @@ def shopping_toggle(request, day):
     if request.headers.get("X-Requested-With") == "fetch":
         return JsonResponse(shopping_list.state(week))
     return redirect("meals:shopping_of", day=week.isoformat())
+
+
+def staple_list(request):
+    kind = request.POST.get("list", "pantry")
+    return kind if kind in shopping_list.STAPLE_LISTS else "pantry"
+
+
+@login_required
+@require_POST
+def staple_add(request):
+    """Something we always have (pantry, freezer): from the shopping list or the settings page."""
+    kind, name = staple_list(request), " ".join(request.POST.get("name", "").split())
+    icon, label = shopping_list.STAPLE_LISTS[kind]
+    if shopping_list.add_staple(kind, name):
+        messages.success(request, f"{icon} {name} is on the {label} list now.")
+    elif name:
+        messages.info(request, f"{name} is already on the {label} list.")
+    return redirect(safe_next(request) or reverse("meals:family") + "#staples")
+
+
+@login_required
+@require_POST
+def staple_remove(request):
+    kind, name = staple_list(request), request.POST.get("name", "")
+    if shopping_list.remove_staple(kind, name):
+        messages.success(request, f"Removed {name} from the {shopping_list.STAPLE_LISTS[kind][1]} list.")
+    return redirect(safe_next(request) or reverse("meals:family") + "#staples")
 
 
 @login_required

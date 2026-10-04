@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .. import schedule
+from .. import shopping as shopping_list
 from ..forms import FamilyMemberForm, HouseholdForm, RuleForm
 from ..models import FamilyMember, Household, Rule
 
@@ -30,6 +31,11 @@ def family(request):
             "members": members,
             "usual_week": schedule.summary(schedule.usual_week(members), members),
             "rules": Rule.objects.all(),
+            "staples": [
+                {"kind": kind, "icon": icon, "label": label.capitalize(), "items": shopping_list.staple_items(kind),
+                 "example": {"pantry": "olive oil", "freezer": "frozen peas"}[kind]}
+                for kind, (icon, label) in shopping_list.STAPLE_LISTS.items()
+            ],
             "rule_form": rule_form,
             "household": household,
             "household_rows": [
@@ -42,7 +48,6 @@ def family(request):
                     ("equipment", household.equipment),
                     ("shops", household.shops),
                     ("priority", household.get_priority_display()),
-                    ("pantry", household.pantry),
                     ("recipe_sites", household.recipe_sites),
                     ("other_sites", household.recipe_sites and household.get_other_sites_display()),
                 ]

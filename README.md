@@ -33,6 +33,9 @@ Phone screens with made-up demo data.
   week. Meals can be added, changed or removed by hand, copied from a past week, or planned with AI.
 - **Shopping** – the week's list, built from the menu's ingredients: merged across recipes, scaled to the
   portions planned, grouped by section, with the meals each item is for. Ticks sync between phones.
+  Staples go to "Check at home": **🫙 Always have it** (pantry and speciality items) and **❄️ Always in the
+  freezer** (frozen items) add an item to the staples; the buttons can be hidden with *Hide staples*, like
+  *Hide meals* and *Hide bought*.
 - **Recipes** – the recipe binder: ★ favourites, recipes we found and want to try, and every dish cooked, with
   history and feedback. Add recipes, add them to a menu, star a dish from any meal card. A recipe to try that
   everyone likes becomes a favourite; AI planning reuses favourites and works in recipes to try.
@@ -41,7 +44,7 @@ Phone screens with made-up demo data.
   **📷 from photos** (magazine, cookbook, handwritten card; plus a link if it's also online), or **✍️ typed in**.
   You check everything the AI read before it's saved. Recipes without a web page keep their method and photos.
 - **Settings** (top right) – family members (likes, dislikes, allergies), the usual week (which meals, who eats),
-  planning rules and household settings. All of it, plus past menus and feedback, goes into AI planning.
+  planning rules, pantry and freezer staples and menu creation settings (cooking times, cuisines, recipe sources...). All of it, plus past menus and feedback, goes into AI planning.
 
 ## AI menu planning
 

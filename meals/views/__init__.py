@@ -18,7 +18,16 @@ from .recipes import (
     recipe_status,
     recipes,
 )
-from .shopping import extra_add, extra_delete, extra_restore, shopping, shopping_state, shopping_toggle
+from .shopping import (
+    extra_add,
+    extra_delete,
+    extra_restore,
+    shopping,
+    shopping_state,
+    shopping_toggle,
+    staple_add,
+    staple_remove,
+)
 
 __all__ = [
     "extra_add", "extra_delete", "extra_restore", "family", "feedback", "feedback_quick", "home",
@@ -26,5 +35,5 @@ __all__ = [
     "menu_copy", "menu_request", "menu_request_status", "rule_edit", "rule_toggle", "shopping", "shopping_state",
     "shopping_toggle", "usual_week", "recipes", "recipe", "recipe_edit", "recipe_status",
     "recipe_photo_new", "recipe_import_view", "recipe_import_retry", "recipe_import_status", "recipe_photo_file",
-    "recipe_photo_add", "recipe_photo_delete", "recipe_import_discard", "recipe_add", "recipe_link_new",
+    "recipe_photo_add", "recipe_photo_delete", "recipe_import_discard", "recipe_add", "recipe_link_new", "staple_add", "staple_remove",
 ]

@@ -293,7 +293,6 @@ a.badge.use:hover { color: var(--fg); }
 .shop-item.checked .item-name, .shop-item.checked .qty { text-decoration: line-through; color: var(--muted); }
 .shop-item.checked .uses { opacity: .55; }
 #shopping.hide-bought .shop-item.checked { display: none; }
-#shopping.hide-uses .uses { display: none; }
 .add-extra summary { cursor: pointer; color: var(--accent); font-weight: 600; }
 .add-extra[open] summary { margin-bottom: .5rem; }
 .section-title { margin: 1.75rem 0 .75rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
@@ -397,3 +396,21 @@ input[type=file] { font: inherit; max-width: 100%; }
 .add-manual > span:first-child { display: flex; flex-direction: column; }
 .import-icon { width: 3rem; height: 3rem; border-radius: 6px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0; background: var(--bg); }
 .import-source { overflow-wrap: anywhere; }
+/* Pantry */
+.view-toggles { flex-wrap: wrap; justify-content: flex-end; gap: .2rem .9rem; }
+button.badge.pantry-btn {
+  min-height: 0; padding: 0 .45rem; font-size: .7rem; line-height: 1.5; font-weight: 600;
+  background: var(--herb-soft); color: var(--herb); border: 0; border-radius: 999px; cursor: pointer;
+}
+#shopping.hide-pantry .pantry-action { display: none; }
+#shopping.hide-uses .uses:not(:has(.pantry-action)) { display: none; }
+#shopping.hide-uses .uses .badge.use, #shopping.hide-uses .uses .extra-badge { display: none; }
+.pantry-list { list-style: none; padding: 0; margin: 0 0 .75rem; display: flex; flex-wrap: wrap; gap: .35rem; }
+.pantry-list li { display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .3rem .15rem .65rem; border: 1px solid var(--border); border-radius: 999px; font-size: .9rem; background: var(--card); }
+.pantry-list .link { padding: 0 .25rem; }
+/* Settings values can be long (cuisines, equipment): wrap them instead of running off the page. */
+table.kv.wrap { table-layout: fixed; }
+table.kv.wrap td:first-child { width: 42%; padding-right: .75rem; }
+table.kv.wrap td:last-child { white-space: normal; text-align: left; overflow-wrap: anywhere; padding-left: 0; }
+.staple-list + .staple-list { margin-top: .9rem; padding-top: .75rem; border-top: 1px solid var(--border); }
+.staple-list h4 { margin: 0 0 .4rem; font-size: .95rem; }

@@ -12,6 +12,7 @@
         <span class="view-toggles">
           <button type="button" class="link small" id="hide-uses" aria-pressed="false">Hide meals</button>
           <button type="button" class="link small" id="hide-bought" aria-pressed="false">Hide bought</button>
+          <button type="button" class="link small" id="hide-pantry" aria-pressed="false">Hide staples</button>
         </span>
       </div>
       <div class="progress"><span id="progress-bar" style="width: {% widthratio bought total 100 %}%"></span></div>
@@ -54,9 +55,9 @@
     {% if at_home %}
       <section class="card shop-section at-home">
         <h3>🏠 Check at home</h3>
-        <p class="muted small">Pantry staples – usually at home. Tick them if you have them or buy them.</p>
+        <p class="muted small">Pantry and freezer staples – usually at home. Tick them if you have them or buy them.</p>
         <ul class="shop-items">
-          {% for item in at_home %}{% include "meals/_shop_item.html" %}{% endfor %}
+          {% for item in at_home %}{% include "meals/_shop_item.html" with at_home_item=True %}{% endfor %}
         </ul>
       </section>
     {% endif %}

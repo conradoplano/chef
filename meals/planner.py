@@ -229,6 +229,7 @@ def build_prompt(request):
             ("Where we shop", household.shops),
             ("Optimise the shopping for", household.get_priority_display()),
             ("Pantry staples we usually have", household.pantry),
+            ("Usually in the freezer", household.freezer),
             ("Recipe sources to search first (websites, cooks or brands)",
              ", ".join(sum(recipe_sources(household.recipe_sites), []))),
             ("Recipes from other sources",

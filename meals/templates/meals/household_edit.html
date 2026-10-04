@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}Household · {{ site_name }}{% endblock %}
+{% block title %}Menu creation · {{ site_name }}{% endblock %}
 
 {% block content %}
-  <h2>Household</h2>
+  <h2>Menu creation</h2>
+  <p class="muted">How menus are put together when they're created with AI.</p>
   <form method="post" class="card stack">
     {% csrf_token %}
     {% include "meals/_fields.html" %}

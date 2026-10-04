@@ -123,6 +123,7 @@
     };
     viewToggle('hide-bought', 'hide-bought', ['Hide bought', 'Show bought']);
     viewToggle('hide-uses', 'hide-uses', ['Hide meals', 'Show meals']);
+    viewToggle('hide-pantry', 'hide-pantry', ['Hide staples', 'Show staples']);
   }
 
   // --- Ingredients: add another empty row. ---

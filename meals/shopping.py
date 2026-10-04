@@ -76,6 +76,13 @@ class Item:
     extra: ExtraItem = None
     checked_by: str = ""
     checked: bool = False
+    staple_list: str = ""  # "pantry" or "freezer" if it's a staple we usually have
+    staple_name: str = ""  # the staple it matched, e.g. "olive oil" for "Extra virgin olive oil"
+
+    @property
+    def can_be_staple(self):
+        """The list this item could be kept on (pantry, freezer), if any; fresh food can't."""
+        return "" if self.extra else STAPLE_CATEGORIES.get(self.category, "")
 
 
 @dataclass
@@ -85,21 +92,59 @@ class Section:
     items: list
 
 
-def pantry_keys():
-    staples = re.split(r"[\n,;]+", Household.load().pantry)
-    return {item_key(s) for s in staples if s.strip()}
+# Things we usually have at home, kept in lists on the household: list -> (icon, name).
+STAPLE_LISTS = {"pantry": ("🫙", "pantry"), "freezer": ("❄️", "freezer")}
+# Shopping list sections whose items can be staples, and the list they go on. Fresh food can't.
+STAPLE_CATEGORIES = {Category.PANTRY: "pantry", Category.SPECIALITY: "pantry", Category.FROZEN: "freezer"}
+# Sections a staple can match on the list: those, plus items without a section.
+STAPLE_MATCHES = {
+    kind: {c for c, k in STAPLE_CATEGORIES.items() if k == kind} | {Category.OTHER} for kind in STAPLE_LISTS
+}
 
 
-def is_staple(key, staples):
-    """True if a pantry staple is the item or part of its name, as whole words:
+def staple_items(kind):
+    """A staples list, as entered (one per line; commas also work)."""
+    text = getattr(Household.load(), kind)
+    return [" ".join(s.split()) for s in re.split(r"[\n,;]+", text) if s.strip()]
+
+
+def save_staples(kind, items):
+    household = Household.load()
+    setattr(household, kind, "\n".join(items))
+    household.save(update_fields=[kind])
+
+
+def add_staple(kind, name):
+    """Adds a staple unless it's already on the list (as the same ingredient). Returns True if added."""
+    name = " ".join(name.split())[:100]
+    items = staple_items(kind)
+    if not name or item_key(name) in {item_key(i) for i in items}:
+        return False
+    save_staples(kind, sorted([*items, name], key=str.lower))
+    return True
+
+
+def remove_staple(kind, name):
+    """Removes the staple and anything that is the same ingredient (e.g. "Onions" for "onion")."""
+    key = item_key(name)
+    items = staple_items(kind)
+    kept = [i for i in items if item_key(i) != key]
+    if len(kept) != len(items):
+        save_staples(kind, kept)
+        return True
+    return False
+
+
+def matching_staple(key, staples):
+    """The staple that is the item or part of its name, as whole words, or None:
     "olive oil" matches "extra virgin olive oil", but "oil" doesn't match "foil"."""
-    return any(key == s or re.search(rf"\b{re.escape(s)}\b", key) for s in staples)
+    return next((name for s, name in staples if key == s or re.search(rf"\b{re.escape(s)}\b", key)), None)
 
 
 def build(week):
     """Returns (sections, at_home, missing) for the week starting on Monday `week`.
 
-    at_home: items that are pantry staples, to check before shopping.
+    at_home: items that are staples (pantry or freezer), to check before shopping.
     missing: cooked meals whose dish has no ingredients yet.
     """
     meals = (
@@ -152,8 +197,21 @@ def build(week):
             item.checked = True
             item.checked_by = check.checked_by.get_short_name() if check.checked_by else ""
 
-    staples = pantry_keys()
-    at_home = sorted((i for i in items if is_staple(i.key, staples) and not i.extra), key=lambda i: i.name.lower())
+    staples = {kind: [(item_key(s), s) for s in staple_items(kind)] for kind in STAPLE_LISTS}
+    for item in items:
+        if item.extra:
+            continue
+        for kind, names in staples.items():
+            if item.category in STAPLE_MATCHES[kind]:
+                match = matching_staple(item.key, names)
+            else:
+                # Fresh food only by its exact name: "garlic" can be a staple, but the spice "pepper"
+                # mustn't take fresh peppers off the list.
+                match = next((name for _, name in names if name.lower() == " ".join(item.name.lower().split())), None)
+            if match:
+                item.staple_list, item.staple_name = kind, match
+                break
+    at_home = sorted((i for i in items if i.staple_list), key=lambda i: i.name.lower())
     at_home_keys = {i.key for i in at_home}
     to_buy = [i for i in items if i.key not in at_home_keys]
 

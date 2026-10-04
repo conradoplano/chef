@@ -227,6 +227,7 @@ class Household(models.Model):
     shops = models.TextField("where we shop", blank=True)
     priority = models.CharField("optimise for", max_length=12, choices=Priority.choices, default=Priority.BALANCED)
     pantry = models.TextField("pantry staples", blank=True, help_text="Things we always have; left off the shopping list.")
+    freezer = models.TextField("freezer staples", blank=True, help_text="Things always in the freezer.")
 
     class OtherSites(models.TextChoices):
         NEVER = "never", "Never – only the sources above"

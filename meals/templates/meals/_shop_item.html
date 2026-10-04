@@ -16,6 +16,17 @@
   </form>
   {% if item.uses or item.extra %}
     <div class="uses">
+      {% if at_home_item %}
+        <form method="post" action="{% url 'meals:staple_remove' %}?next={{ request.path|urlencode }}" class="inline pantry-action">
+          {% csrf_token %}<input type="hidden" name="list" value="{{ item.staple_list }}"><input type="hidden" name="name" value="{{ item.staple_name }}">
+          <button type="submit" class="badge pantry-btn" title="We don't always have {{ item.staple_name }}">✕ Remove from {{ item.staple_list }}</button>
+        </form>
+      {% elif item.can_be_staple %}
+        <form method="post" action="{% url 'meals:staple_add' %}?next={{ request.path|urlencode }}" class="inline pantry-action">
+          {% csrf_token %}<input type="hidden" name="list" value="{{ item.can_be_staple }}"><input type="hidden" name="name" value="{{ item.name }}">
+          <button type="submit" class="badge pantry-btn" title="Add to the {{ item.can_be_staple }} staples">{% if item.can_be_staple == "freezer" %}❄️ Always in the freezer{% else %}🫙 Always have it{% endif %}</button>
+        </form>
+      {% endif %}
       {% for use in item.uses %}
         {% if use.meal.dish.recipe_url %}
           <a class="badge use" href="{{ use.meal.dish.recipe_url }}" target="_blank" rel="noopener" title="{{ use.label }}"><span class="use-name">{{ use.label }}</span> ↗</a>
