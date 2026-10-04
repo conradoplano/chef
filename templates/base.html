@@ -20,7 +20,9 @@
       <a href="{% url 'meals:home' %}" class="brand"><img src="{% static 'icons/icon-180.png' %}" alt="">{{ site_name }}</a>
       {% if user.is_authenticated %}
         <div class="who">
-          {% if user.is_staff %}<a href="{% url 'admin:index' %}">Admin</a>{% endif %}
+          {% with name=request.resolver_match.url_name %}
+          <a href="{% url 'meals:family' %}" class="{% if name == 'family' or name == 'member' or name == 'member_new' or name == 'rule' or name == 'household' or name == 'usual_week' %}on{% endif %}">⚙ Settings</a>
+          {% endwith %}
           <form method="post" action="{% url 'accounts:logout' %}" class="inline">
             {% csrf_token %}<button type="submit" class="link">Log out</button>
           </form>
@@ -45,8 +47,8 @@
         <span class="ic">🍽</span>Menu</a>
       <a href="{% url 'meals:shopping' %}" class="{% if name == 'shopping' or name == 'shopping_of' %}on{% endif %}">
         <span class="ic">🛒</span>Shopping</a>
-      <a href="{% url 'meals:family' %}" class="{% if name == 'family' or name == 'member' or name == 'member_new' or name == 'rule' or name == 'household' %}on{% endif %}">
-        <span class="ic">👪</span>Family</a>
+      <a href="{% url 'meals:recipes' %}" class="{% if name == 'recipes' or name == 'recipe' or name == 'recipe_new' or name == 'recipe_edit' %}on{% endif %}">
+        <span class="ic">📖</span>Recipes</a>
     </nav>
     {% endwith %}
   {% endif %}

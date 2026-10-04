@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}Family · {{ site_name }}{% endblock %}
+{% block title %}Settings · {{ site_name }}{% endblock %}
 
 {% block content %}
-  <p class="muted small">Everything here is taken into account when a menu is created.</p>
+  <h2>⚙ Settings</h2>
+  <p class="muted small">Your family, usual week, rules and household. Everything here is taken into account when a menu is created.</p>
 
   <section class="card">
     <div class="line section-head">
@@ -77,4 +78,14 @@
       <p class="muted">How we cook and shop: cooking times, how adventurous, cuisines, equipment, shops and pantry staples.</p>
     {% endif %}
   </section>
+
+  {% if user.is_staff %}
+    <section class="card">
+      <div class="line section-head">
+        <h3>Admin</h3>
+        <a class="btn ghost small" href="{% url 'admin:index' %}">Open admin</a>
+      </div>
+      <p class="muted small">Users and who can log in, all data, and the AI's menu requests with their cost.</p>
+    </section>
+  {% endif %}
 {% endblock %}

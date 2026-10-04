@@ -11,7 +11,10 @@ to the home screen. Vibecoded with Claude Opus 5.5.
   week. Meals can be added, changed or removed by hand, copied from a past week, or planned with AI.
 - **Shopping** – the week's list, built from the menu's ingredients: merged across recipes, scaled to the
   portions planned, grouped by section, with the meals each item is for. Ticks sync between phones.
-- **Family** – family members (likes, dislikes, allergies), the usual week (which meals, who eats),
+- **Recipes** – the recipe binder: ★ favourites, recipes we found and want to try, and every dish cooked, with
+  history and feedback. Add recipes, add them to a menu, star a dish from any meal card. A recipe to try that
+  everyone likes becomes a favourite; AI planning reuses favourites and works in recipes to try.
+- **Settings** (top right) – family members (likes, dislikes, allergies), the usual week (which meals, who eats),
   planning rules and household settings. All of it, plus past menus and feedback, goes into AI planning.
 
 ## AI menu planning

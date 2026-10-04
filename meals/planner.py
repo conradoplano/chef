@@ -53,6 +53,11 @@ How to plan:
 - Prefer seasonal ingredients for the date and reuse ingredients across meals to keep the shopping list short and avoid waste.
 - Pay close attention to the notes for this week.
 
+Recipe binder:
+- "Favourites" are proven family hits: plan them when they fit the week (the no-repeat rule still applies).
+- "Want to try" are recipes the family saved: include about one per week when it fits, more if the notes ask for it.
+- For binder recipes, use the dish name exactly as listed and its recipe link; the app already has their ingredients, so no web search is needed for them.
+
 Recipes:
 - Use web search to find a real recipe page for each new dish. If the household lists recipe sources (websites, or names of cooks or brands - search for their recipe pages), search those first and use other sources only as often as the household setting allows; otherwise prefer well-known recipe sites. Only use URLs that appeared in your search results; if you can't find a good one, leave recipe_url empty. Dishes listed with a recipe link in the history can keep that link without searching.
 - Keep searching efficient: a few targeted searches, not one per ingredient.
@@ -234,6 +239,15 @@ def build_prompt(request):
     if settings_lines:
         out.append("\n## Household")
         out += [f"- {label}: {value}" for label, value in settings_lines]
+
+    for status, title in [(Dish.Status.FAVOURITE, "Recipe binder: favourites"), (Dish.Status.TRY, "Recipe binder: want to try")]:
+        saved = Dish.objects.filter(status=status).order_by("-saved_at")[:40]
+        if saved:
+            out.append(f"\n## {title}")
+            for dish in saved:
+                details = [d for d in [dish.get_kind_display().lower(), dish.minutes and f"{dish.minutes} min",
+                                       dish.recipe_url and f"<{dish.recipe_url}>", dish.notes.strip()] if d]
+                out.append(f"- {dish.name}" + (f" ({', '.join(details)})" if details else ""))
 
     history = (
         PlannedMeal.objects.filter(date__gte=request.week - timedelta(weeks=8), date__lt=request.week)

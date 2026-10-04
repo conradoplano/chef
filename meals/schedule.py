@@ -2,7 +2,7 @@
 Which meals are needed and who eats them.
 
 The same grid (days x lunch/dinner, with the family members who eat) is used for
-the usual week on the family page and for a concrete week when creating a menu.
+the usual week on the settings page and for a concrete week when creating a menu.
 Form fields are named "<row key>-<slot>-on" (checkbox) and "<row key>-<slot>-eaters"
 (one checkbox per member).
 """
@@ -85,7 +85,7 @@ def week_keys(start):
 
 
 def summary(week, members):
-    """Short text per weekday for the family page, e.g. "Dinner: everyone"."""
+    """Short text per weekday for the settings page, e.g. "Dinner: everyone"."""
     names = {m.pk: m.name for m in members}
     lines = []
     for weekday in range(7):

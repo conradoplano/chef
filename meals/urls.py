@@ -1,4 +1,5 @@
 from django.urls import path
+from django.views.generic import RedirectView
 
 from . import views
 
@@ -21,13 +22,20 @@ urlpatterns = [
     path("shopping/extra/<int:pk>/delete/", views.extra_delete, name="extra_delete"),
     path("shopping/extra/<int:pk>/restore/", views.extra_restore, name="extra_restore"),
     path("dish/<int:pk>/ingredients/", views.ingredients, name="ingredients"),
-    path("family/", views.family, name="family"),
-    path("family/member/new/", views.member_edit, name="member_new"),
-    path("family/member/<int:pk>/", views.member_edit, name="member"),
-    path("family/rule/<int:pk>/", views.rule_edit, name="rule"),
-    path("family/rule/<int:pk>/toggle/", views.rule_toggle, name="rule_toggle"),
-    path("family/household/", views.household_edit, name="household"),
-    path("family/usual-week/", views.usual_week, name="usual_week"),
+    path("recipes/", views.recipes, name="recipes"),
+    path("recipes/new/", views.recipe_edit, name="recipe_new"),
+    path("recipes/<int:pk>/", views.recipe, name="recipe"),
+    path("recipes/<int:pk>/edit/", views.recipe_edit, name="recipe_edit"),
+    path("recipes/<int:pk>/status/", views.recipe_status, name="recipe_status"),
+    path("settings/", views.family, name="family"),
+    # The settings page used to be the "Family" tab.
+    path("family/", RedirectView.as_view(pattern_name="meals:family", permanent=True)),
+    path("settings/member/new/", views.member_edit, name="member_new"),
+    path("settings/member/<int:pk>/", views.member_edit, name="member"),
+    path("settings/rule/<int:pk>/", views.rule_edit, name="rule"),
+    path("settings/rule/<int:pk>/toggle/", views.rule_toggle, name="rule_toggle"),
+    path("settings/household/", views.household_edit, name="household"),
+    path("settings/usual-week/", views.usual_week, name="usual_week"),
     path("week/<str:day>/create/", views.menu_create, name="menu_create"),
     path("week/<str:day>/copy/", views.menu_copy, name="menu_copy"),
     path("plan/<int:pk>/", views.menu_request, name="menu_request"),

@@ -22,6 +22,7 @@
     <template id="empty-row">{% with form=formset.empty_form %}{% include "meals/_ingredient_row.html" %}{% endwith %}</template>
     <button type="button" class="ghost" id="add-row">+ Another ingredient</button>
     <button class="wide" type="submit">Save ingredients</button>
+    {% if request.GET.next %}<p class="center small"><a href="{{ request.GET.next }}">Skip for now</a></p>{% endif %}
   </form>
 
   <datalist id="units">{% for u in units %}<option value="{{ u }}">{% endfor %}</datalist>

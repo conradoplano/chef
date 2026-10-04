@@ -130,3 +130,26 @@ class DishServingsForm(forms.ModelForm):
         fields = ["servings"]
         labels = {"servings": "Quantities are for (portions)"}
         help_texts = {"servings": "The shopping list scales them to the portions planned for each meal."}
+
+
+class RecipeForm(forms.ModelForm):
+    recipe_url = forms.URLField(label="Recipe link", max_length=500, required=False, assume_scheme="https")
+
+    class Meta:
+        model = Dish
+        fields = ["name", "recipe_url", "kind", "minutes", "servings", "notes", "status"]
+        labels = {"servings": "Portions", "status": "In the binder as"}
+        help_texts = {"servings": "How many portions the ingredients are for."}
+        widgets = {"notes": forms.Textarea(attrs={"rows": 3, "placeholder": "E.g. where we found it, what to change"})}
+
+    def clean_name(self):
+        name = " ".join(self.cleaned_data["name"].split())
+        clash = Dish.objects.filter(name__iexact=name).exclude(pk=self.instance.pk).first()
+        if clash:
+            raise forms.ValidationError(f"There's already a recipe called “{clash.name}”.")
+        return name
+
+
+class AddToMenuForm(forms.Form):
+    date = forms.DateField(widget=DateInput())
+    slot = forms.ChoiceField(label="Meal", choices=PlannedMeal.Slot.choices, initial=PlannedMeal.Slot.DINNER)

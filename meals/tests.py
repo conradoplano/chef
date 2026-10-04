@@ -335,7 +335,8 @@ class HomeTests(TestCase):
         meal = PlannedMeal.objects.create(date=self.today, dish=self.dish)
         response = self.client.get(reverse("meals:menu"))
         self.assertContains(response, f'href="{reverse("meals:meal", args=[meal.pk])}" ')
-        self.assertNotContains(response, "?next=")
+        self.assertNotContains(response, f'{reverse("meals:meal", args=[meal.pk])}?next=')
+        self.assertNotContains(response, f'{reverse("meals:feedback", args=[meal.pk])}?next=')
 
     def test_edit_and_feedback_return_home(self):
         meal = PlannedMeal.objects.create(date=self.today, dish=self.dish)
@@ -567,7 +568,7 @@ class QuickFeedbackTests(TestCase):
 
     def test_sets_same_rating_for_kids_and_parents(self):
         response = self.client.post(self.url, {"rating": "loved"}, headers={"X-Requested-With": "fetch"})
-        self.assertEqual(response.json(), {"rating": "loved"})
+        self.assertEqual(response.json(), {"rating": "loved", "favourite": False})
         review = Feedback.objects.get()
         self.assertEqual((review.kids, review.parents), ("loved", "loved"))
         self.assertContains(self._menu(), 'value="loved" class="qf" aria-pressed="true"')
@@ -581,7 +582,7 @@ class QuickFeedbackTests(TestCase):
     def test_tapping_again_clears(self):
         self.client.post(self.url, {"rating": "okay"})
         response = self.client.post(self.url, {"rating": "okay"}, headers={"X-Requested-With": "fetch"})
-        self.assertEqual(response.json(), {"rating": ""})
+        self.assertEqual(response.json()["rating"], "")
         self.assertFalse(Feedback.objects.exists())
 
     def test_clearing_keeps_feedback_with_notes(self):
@@ -747,3 +748,123 @@ class RecipesFromSourcesTests(TestCase):
         household.recipe_sites = "Jamie Oliver"
         household.save()
         self.assertNotContains(self._page(), "from your recipe websites")
+
+
+class RecipeBinderTests(TestCase):
+    def setUp(self):
+        self.client.force_login(User.objects.create_user(email="parent@example.com"))
+        self.today = timezone.localdate()
+        self.fav = Dish.objects.create(name="Lasagne", status="favourite", minutes=60)
+        self.new = Dish.objects.create(name="Shakshuka", status="try", recipe_url="https://www.bbcgoodfood.com/shakshuka")
+        self.plain = Dish.objects.create(name="Fish sticks")
+        PlannedMeal.objects.create(date=self.today - timedelta(days=3), dish=self.fav)
+
+    def test_filters_and_search(self):
+        response = self.client.get(reverse("meals:recipes"))
+        self.assertEqual([d.name for d in response.context["dishes"]], ["Lasagne"])
+        self.assertContains(response, "Cooked 1×")
+        self.assertEqual(dict((k, c) for k, _, c in response.context["filters"]), {"favourites": 1, "try": 1, "all": 3})
+        response = self.client.get(reverse("meals:recipes") + "?show=try")
+        self.assertEqual([d.name for d in response.context["dishes"]], ["Shakshuka"])
+        self.assertContains(response, "Not cooked yet")
+        self.new.ingredients.create(name="Eggs", quantity=6, unit="pcs", category="dairy")
+        response = self.client.get(reverse("meals:recipes") + "?show=all&q=egg")
+        self.assertEqual([d.name for d in response.context["dishes"]], ["Shakshuka"])
+
+    def test_add_recipe_goes_on_to_ingredients(self):
+        response = self.client.post(reverse("meals:recipe_new"), {
+            "name": "  Pad   thai ", "recipe_url": "recipetineats.com/pad-thai", "kind": "meat", "minutes": "30",
+            "servings": "4", "notes": "", "status": "try",
+        })
+        dish = Dish.objects.get(name="Pad thai")
+        self.assertEqual((dish.status, dish.recipe_url), ("try", "https://recipetineats.com/pad-thai"))
+        self.assertIsNotNone(dish.saved_at)
+        self.assertRedirects(response, reverse("meals:ingredients", args=[dish.pk]) + f"?next=%2Frecipes%2F{dish.pk}%2F",
+                             fetch_redirect_response=False)
+        self.assertContains(self.client.get(response.url), "Skip for now")
+
+    def test_names_must_be_unique(self):
+        response = self.client.post(reverse("meals:recipe_new"), {"name": "lasagne", "kind": "other", "servings": "4", "status": "try"})
+        self.assertContains(response, "already a recipe called")
+
+    def test_recipe_page_and_add_to_menu(self):
+        ana = FamilyMember.objects.create(name="Ana")
+        response = self.client.get(reverse("meals:recipe", args=[self.fav.pk]))
+        self.assertContains(response, "Lasagne")
+        self.assertEqual(len(response.context["history"]), 1)
+        day = date(2026, 10, 7)
+        response = self.client.post(reverse("meals:recipe", args=[self.new.pk]), {"date": day.isoformat(), "slot": "dinner"})
+        self.assertRedirects(response, reverse("meals:menu_of", args=[day.isoformat()]))
+        meal = PlannedMeal.objects.get(dish=self.new)
+        self.assertEqual((meal.date, meal.slot, list(meal.eaters.all())), (day, "dinner", [ana]))
+
+    def test_status_buttons_and_star_toggle(self):
+        url = reverse("meals:recipe_status", args=[self.plain.pk])
+        self.client.post(url, {"status": "try"})
+        self.plain.refresh_from_db()
+        self.assertEqual(self.plain.status, "try")
+        meal = PlannedMeal.objects.create(date=self.today, dish=self.plain)
+        page = self.client.get(reverse("meals:menu_of", args=[self.today.isoformat()]))
+        self.assertContains(page, 'aria-label="Save as a favourite">☆</button>')
+        response = self.client.post(url + "?next=/", {"toggle": "favourite", "anchor": f"meal-{meal.pk}"})
+        self.assertRedirects(response, f"/#meal-{meal.pk}", fetch_redirect_response=False)
+        self.plain.refresh_from_db()
+        self.assertEqual(self.plain.status, "favourite")
+        self.client.post(url, {"toggle": "favourite"})
+        self.plain.refresh_from_db()
+        self.assertEqual(self.plain.status, "")
+
+    def test_liked_recipe_to_try_becomes_a_favourite(self):
+        meal = PlannedMeal.objects.create(date=self.today, dish=self.new)
+        response = self.client.post(reverse("meals:feedback_quick", args=[meal.pk]), {"rating": "liked"},
+                                    headers={"X-Requested-With": "fetch"})
+        self.assertEqual(response.json(), {"rating": "liked", "favourite": True})
+        self.new.refresh_from_db()
+        self.assertEqual(self.new.status, "favourite")
+
+    def test_disliked_or_split_feedback_keeps_it_to_try(self):
+        meal = PlannedMeal.objects.create(date=self.today, dish=self.new)
+        self.client.post(reverse("meals:feedback", args=[meal.pk]), {"kids": "loved", "parents": "disliked"})
+        self.client.post(reverse("meals:feedback_quick", args=[meal.pk]), {"rating": "disliked"})
+        self.new.refresh_from_db()
+        self.assertEqual(self.new.status, "try")
+
+    def test_remove_or_delete(self):
+        self.client.post(reverse("meals:recipe_edit", args=[self.fav.pk]), {"delete": "1"})
+        self.fav.refresh_from_db()
+        self.assertEqual(self.fav.status, "")  # cooked before, so it stays for the history
+        self.client.post(reverse("meals:recipe_edit", args=[self.new.pk]), {"delete": "1"})
+        self.assertFalse(Dish.objects.filter(pk=self.new.pk).exists())
+
+    def test_binder_goes_into_the_ai_prompt(self):
+        from . import planner
+        from .models import MenuRequest
+
+        request = MenuRequest.objects.create(week=date(2026, 10, 5), slots=[{"date": "2026-10-05", "slot": "dinner", "eaters": []}])
+        prompt = planner.build_prompt(request)
+        self.assertIn("## Recipe binder: favourites\n- Lasagne (other, 60 min)", prompt)
+        self.assertIn("## Recipe binder: want to try\n- Shakshuka (other, <https://www.bbcgoodfood.com/shakshuka>)", prompt)
+        self.assertNotIn("Fish sticks", prompt)
+        self.assertIn("use the dish name exactly as listed", planner.SYSTEM_PROMPT)
+
+
+class SettingsPageTests(TestCase):
+    def test_settings_link_replaces_family_tab_and_admin(self):
+        self.client.force_login(User.objects.create_user(email="parent@example.com"))
+        page = self.client.get(reverse("meals:home"))
+        self.assertContains(page, f'href="{reverse("meals:family")}" class="">⚙ Settings</a>')
+        self.assertNotContains(page, "</span>Family</a>")
+        self.assertNotContains(page, ">Admin</a>")
+        settings_page = self.client.get(reverse("meals:family"))
+        self.assertContains(settings_page, "<h2>⚙ Settings</h2>")
+        self.assertContains(settings_page, 'class="on">⚙ Settings</a>')
+        self.assertNotContains(settings_page, "Open admin")  # not an admin user
+
+    def test_admin_section_for_admins(self):
+        self.client.force_login(User.objects.create_user(email="admin@example.com", is_staff=True))
+        self.assertContains(self.client.get(reverse("meals:family")), 'href="/admin/">Open admin</a>')
+
+    def test_old_family_address_redirects(self):
+        self.client.force_login(User.objects.create_user(email="parent@example.com"))
+        self.assertEqual(reverse("meals:family"), "/settings/")
+        self.assertRedirects(self.client.get("/family/"), "/settings/", status_code=301)

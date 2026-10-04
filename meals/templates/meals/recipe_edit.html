@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}{% if dish %}Edit {{ dish.name }}{% else %}Add recipe{% endif %} · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <h2>{% if dish %}Edit recipe{% else %}Add a recipe{% endif %}</h2>
+  {% if not dish %}<p class="muted">A recipe you love, or one you found and want to try. Ingredients come next.</p>{% endif %}
+  <form method="post" class="card stack">
+    {% csrf_token %}
+    {% include "meals/_fields.html" %}
+    <button class="wide" type="submit">Save</button>
+  </form>
+  {% if dish %}
+    <form method="post" class="center">
+      {% csrf_token %}
+      <button type="submit" name="delete" value="1" class="danger">{% if dish.planned.exists %}Remove from the binder{% else %}Delete recipe{% endif %}</button>
+    </form>
+  {% endif %}
+{% endblock %}

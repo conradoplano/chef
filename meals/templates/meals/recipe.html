@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}{{ dish.name }} · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <p class="small"><a href="{% url 'meals:recipes' %}">‹ Recipes</a></p>
+  <div class="title-row">
+    <h2>{{ dish.icon }} {{ dish.name }}</h2>
+    <a class="icon-btn" href="{% url 'meals:recipe_edit' dish.pk %}" aria-label="Edit recipe" title="Edit recipe">✎</a>
+  </div>
+  <div class="meta small muted recipe-meta">
+    <span>{{ dish.get_kind_display }}</span>
+    {% if dish.minutes %}<span>⏱ {{ dish.minutes }} min</span>{% endif %}
+    <span>{{ dish.servings }} portions</span>
+    {% if dish.recipe_url %}<a class="badge source" href="{{ dish.recipe_url }}" target="_blank" rel="noopener">{{ dish.recipe_source }} ↗</a>{% endif %}
+  </div>
+  {% if dish.notes %}<p class="note">{{ dish.notes|linebreaksbr }}</p>{% endif %}
+
+  <form method="post" action="{% url 'meals:recipe_status' dish.pk %}" class="status-choice" aria-label="In the binder as">
+    {% csrf_token %}
+    {% for value, label in statuses %}
+      <button type="submit" name="status" value="{{ value }}" class="pill{% if dish.status == value %} on{% endif %}" aria-pressed="{% if dish.status == value %}true{% else %}false{% endif %}">{% if value == "favourite" %}★ {% endif %}{{ label }}</button>
+    {% endfor %}
+  </form>
+
+  <section class="card">
+    <h3>Add to a menu</h3>
+    <form method="post" class="row add-to-menu">
+      {% csrf_token %}
+      <div class="field">{{ form.date.label_tag }}{{ form.date }}{{ form.date.errors }}</div>
+      <div class="field">{{ form.slot.label_tag }}{{ form.slot }}</div>
+      <div class="field"><button type="submit">Add</button></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="line section-head">
+      <h3>Ingredients <span class="muted small">for {{ dish.servings }}</span></h3>
+      <a class="btn ghost small" href="{% url 'meals:ingredients' dish.pk %}?next={{ request.path|urlencode }}">Edit</a>
+    </div>
+    {% if ingredients %}
+      <ul class="plain-list small">
+        {% for i in ingredients %}<li>{{ i.name }}{% if i.quantity %} <span class="qty">{{ i.quantity|floatformat:"-2" }} {{ i.unit }}</span>{% elif i.unit %} <span class="qty">{{ i.unit }}</span>{% endif %}{% if i.note %} <span class="muted">· {{ i.note }}</span>{% endif %}</li>{% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted small">None yet – add them so this recipe fills the shopping list when it's on a menu.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h3>History</h3>
+    {% if history %}
+      <ul class="plain-list small">
+        {% for m in history %}
+          <li class="line">
+            <a href="{% url 'meals:menu_of' m.date.isoformat %}">{{ m.date|date:"D j M Y" }}, {{ m.get_slot_display|lower }}</a>
+            {% if m.review %}<span>{% if m.review.kids %}Kids {{ m.review.kids_emoji }}{% endif %} {% if m.review.parents %}Parents {{ m.review.parents_emoji }}{% endif %}{% if m.review.reaction %} <span class="warn" title="{{ m.review.reaction }}">⚠</span>{% endif %}</span>{% endif %}
+          </li>
+          {% if m.review.notes %}<li class="muted"><em>“{{ m.review.notes }}”</em></li>{% endif %}
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted small">Not on a menu yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}

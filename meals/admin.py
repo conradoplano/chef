@@ -10,8 +10,8 @@ class IngredientInline(admin.TabularInline):
 
 @admin.register(Dish)
 class DishAdmin(admin.ModelAdmin):
-    list_display = ("name", "kind", "minutes", "recipe_url")
-    list_filter = ("kind",)
+    list_display = ("name", "kind", "status", "minutes", "recipe_url")
+    list_filter = ("kind", "status")
     search_fields = ("name",)
     inlines = [IngredientInline]
 

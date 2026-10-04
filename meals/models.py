@@ -5,7 +5,12 @@ from django.db import models
 
 
 class Dish(models.Model):
-    """A meal we cook, reused across weeks. Feedback and ingredients attach here."""
+    """A recipe: cooked on menus, kept in the recipe binder. Feedback and ingredients attach here."""
+
+    class Status(models.TextChoices):
+        NONE = "", "Not in the binder"
+        TRY = "try", "Want to try"
+        FAVOURITE = "favourite", "Favourite"
 
     class Kind(models.TextChoices):
         FISH = "fish", "Fish"
@@ -41,6 +46,9 @@ class Dish(models.Model):
         "portions", default=4, help_text="How many portions the ingredient quantities are for."
     )
     notes = models.TextField(blank=True)
+    # The recipe binder: recipes we like, and ones we found and want to try.
+    status = models.CharField("binder", max_length=10, choices=Status.choices, default=Status.NONE, blank=True)
+    saved_at = models.DateTimeField(null=True, blank=True, help_text="When it was put in the binder.")
 
     class Meta:
         ordering = ["name"]
@@ -52,6 +60,22 @@ class Dish(models.Model):
     @property
     def icon(self):
         return self.ICONS.get(self.kind, "🍽")
+
+    def set_status(self, status):
+        """Moves the recipe in the binder; remembers when it was first saved."""
+        from django.utils import timezone
+
+        if status and not self.status:
+            self.saved_at = timezone.now()
+        self.status = status
+        self.save(update_fields=["status", "saved_at"])
+
+    def learn_from(self, review):
+        """A recipe we wanted to try that everyone liked becomes a favourite. Returns True if it did."""
+        if self.status == self.Status.TRY and review.shared_rating in ("loved", "liked"):
+            self.set_status(self.Status.FAVOURITE)
+            return True
+        return False
 
     @property
     def recipe_source(self):
@@ -169,7 +193,7 @@ class Rule(models.Model):
 
 
 class Household(models.Model):
-    """How we cook and shop. A single row, edited on the family page.
+    """How we cook and shop. A single row, edited on the settings page.
     Free-text preferences are rules; which meals and who eats is the usual week."""
 
     class Priority(models.TextChoices):

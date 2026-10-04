@@ -124,6 +124,8 @@ def feedback(request, pk):
         review.updated_by = request.user
         review.save()
         messages.success(request, f"Thanks! Saved feedback on {meal.dish}.")
+        if meal.dish.learn_from(review):
+            messages.success(request, f"★ Everyone liked it, so {meal.dish} is now a favourite.")
         return back_to(request, meal.date)
     return render(request, "meals/feedback.html", {"form": form, "meal": meal, "review": review})
 
@@ -142,12 +144,14 @@ def feedback_quick(request, pk):
         rating = ""
     review.kids = review.parents = rating
     review.updated_by = request.user
+    promoted = False
     if rating or review.reaction or review.notes:
         review.save()
+        promoted = meal.dish.learn_from(review)
     elif review.pk:
         review.delete()
     if request.headers.get("X-Requested-With") == "fetch":
-        return JsonResponse({"rating": rating})
+        return JsonResponse({"rating": rating, "favourite": promoted})
     return redirect(f"{back_url(request, meal.date)}#meal-{meal.pk}")
 
 

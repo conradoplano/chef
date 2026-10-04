@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Recipes · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <div class="line section-head">
+    <h2>📖 Recipes</h2>
+    <a class="btn small" href="{% url 'meals:recipe_new' %}">+ Add recipe</a>
+  </div>
+
+  <nav class="filter-pills" aria-label="Show">
+    {% for key, label, count in filters %}
+      <a href="?show={{ key }}{% if query %}&amp;q={{ query|urlencode }}{% endif %}" class="pill{% if key == show %} on{% endif %}"{% if key == show %} aria-current="page"{% endif %}>{{ label }} <span class="count">{{ count }}</span></a>
+    {% endfor %}
+  </nav>
+  <form method="get" class="recipe-search">
+    <input type="hidden" name="show" value="{{ show }}">
+    <input type="search" name="q" value="{{ query }}" placeholder="Search name, notes or ingredient" aria-label="Search recipes">
+  </form>
+
+  {% for d in dishes %}
+    <a class="card recipe-row" href="{% url 'meals:recipe' d.pk %}">
+      <div class="line">
+        <span class="recipe-name">{{ d.icon }} {{ d.name }}</span>
+        {% if d.status == "favourite" %}<span class="star on" aria-label="Favourite">★</span>{% elif d.status == "try" %}<span class="badge try-badge">To try</span>{% endif %}
+      </div>
+      <div class="meta small muted">
+        {% if d.minutes %}<span>⏱ {{ d.minutes }} min</span>{% endif %}
+        {% if d.recipe_url %}<span class="badge source">{{ d.recipe_source }}</span>{% endif %}
+        {% if d.cooked %}<span>Cooked {{ d.cooked }}×{% if d.last_cooked %} · last {{ d.last_cooked|date:"j M" }}{% endif %}</span>{% else %}<span>Not cooked yet</span>{% endif %}
+        {% with f=d.latest_feedback %}{% if f %}<span>{% if f.kids %}Kids {{ f.kids_emoji }}{% endif %} {% if f.parents %}Parents {{ f.parents_emoji }}{% endif %}{% if f.reaction %} ⚠{% endif %}</span>{% endif %}{% endwith %}
+      </div>
+    </a>
+  {% empty %}
+    <div class="card center empty-today">
+      <div class="big">📖</div>
+      {% if query %}
+        <p class="muted">No recipes match “{{ query }}”.</p>
+      {% elif show == "favourites" %}
+        <p class="muted">No favourites yet. Tap ☆ on a meal you liked, or add a recipe you love.</p>
+      {% elif show == "try" %}
+        <p class="muted">Found a recipe you'd like to try? Add it here and it can go on a future menu.</p>
+      {% else %}
+        <p class="muted">No recipes yet.</p>
+      {% endif %}
+      <a class="btn ghost small" href="{% url 'meals:recipe_new' %}{% if query %}?name={{ query|urlencode }}{% endif %}">+ Add recipe</a>
+    </div>
+  {% endfor %}
+{% endblock %}
