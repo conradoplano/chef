@@ -1,0 +1,8 @@
+{% autoescape off %}Hi{% if person.name %} {{ person.get_short_name }}{% endif %},
+
+{{ inviter }} added you to "{{ household }}" on {{ site_name }}, where you plan the week's meals and shopping together.
+
+To log in, enter this email address{% if url %} at {{ url }}{% endif %}. You'll get a six-digit code by email; there's no password.
+
+{{ site_name }}
+{% endautoescape %}

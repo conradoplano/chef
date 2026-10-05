@@ -37,9 +37,14 @@ services:
       EMAIL_USE_TLS: "true"
       DEFAULT_FROM_EMAIL: "Chef <chef@example.com>"
       LOGIN_CODE_MAX_AGE: "600"
-      # Email the rest of the family when a menu is created or changed
+      # Email the household (including whoever asked) when a menu is created or changed
       MENU_EMAILS: "true"
       # AI menu planning (platform.openai.com/api-keys); empty switches it off
       OPENAI_API_KEY: ""
       AI_MODEL: "gpt-5.4-mini"
       AI_EFFORT: "medium"
+      # What AI may cost per day in USD: per household (changeable per household on the admin page) and in total
+      AI_DAILY_LIMIT_USD: "0.20"
+      AI_GLOBAL_DAILY_LIMIT_USD: "2.00"
+      # Anyone can register a household (AI after an admin approves it); "false": only with adduser
+      REGISTRATION_OPEN: "true"

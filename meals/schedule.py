@@ -8,7 +8,7 @@ Form fields are named "<row key>-<slot>-on" (checkbox) and "<row key>-<slot>-eat
 """
 from datetime import timedelta
 
-from .models import Household, PlannedMeal
+from .models import PlannedMeal
 
 SLOTS = [(value, label) for value, label in PlannedMeal.Slot.choices]
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -20,9 +20,9 @@ def default_slot(weekday, slot, member_ids):
     return {"on": on, "eaters": list(member_ids)}
 
 
-def usual_week(members):
+def usual_week(household, members):
     """{weekday: {slot: {"on": bool, "eaters": [ids]}}} from the household, with defaults."""
-    saved = Household.load().usual_week or {}
+    saved = household.usual_week or {}
     ids = [m.pk for m in members]
     week = {}
     for weekday in range(7):
@@ -36,8 +36,7 @@ def usual_week(members):
     return week
 
 
-def save_usual_week(week):
-    household = Household.load()
+def save_usual_week(household, week):
     household.usual_week = {str(day): slots for day, slots in week.items()}
     household.save(update_fields=["usual_week"])
 

@@ -1,12 +1,12 @@
 # Chef
 
-Small Django app to plan our family's meals for the week and share the shopping list.
-Runs on the NAS as a Docker container, data in SQLite. Works on the phone and can be added
-to the home screen. Vibecoded with Claude Opus 5.5.
+Small Django app to plan a family's meals for the week and share the shopping list.
+Several households can use it, each with their own data. Runs on the NAS as a Docker container,
+data in SQLite. Works on the phone and can be added to the home screen. Vibecoded with Claude Opus 5.5.
 
 ## Screenshots
 
-Phone screens with made-up demo data.
+Phone screens with made-up demo data (all names and households are fictional).
 
 <table>
   <tr>
@@ -21,8 +21,13 @@ Phone screens with made-up demo data.
   </tr>
   <tr>
     <td align="center"><img src="docs/screenshots/add-recipe.jpg" width="250" alt="Add a recipe from a link, photos or by typing it in"><br><sub><b>Add a recipe</b> – link, photos or typed</sub></td>
-    <td align="center"><img src="docs/screenshots/settings.jpg" width="250" alt="Settings: family, usual week, rules and household"><br><sub><b>Settings</b> – family, rules, household</sub></td>
+    <td align="center"><img src="docs/screenshots/settings.jpg" width="250" alt="Settings: the people in the household, then family, usual week and rules"><br><sub><b>Settings</b> – people, family, rules</sub></td>
     <td align="center"><img src="docs/screenshots/pick.jpg" width="250" alt="Adding a meal to a day: leftovers, favourites and search"><br><sub><b>Add a meal</b> – pick a recipe for a day</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/register.jpg" width="250" alt="Create an account: name, email and household name"><br><sub><b>Register</b> – a new household</sub></td>
+    <td align="center"><img src="docs/screenshots/ai.jpg" width="250" alt="Settings: the household's AI use today and this month"><br><sub><b>AI use</b> – today and this month</sub></td>
+    <td align="center"><img src="docs/screenshots/admin.jpg" width="250" alt="Admin page: AI costs, households waiting for approval"><br><sub><b>Admin</b> – approvals, costs, limits</sub></td>
   </tr>
 </table>
 
@@ -45,8 +50,31 @@ Phone screens with made-up demo data.
   that block downloads are opened by the AI's web search; on Android, *Share → Chef* fills in the link),
   **📷 from photos** (magazine, cookbook, handwritten card; plus a link if it's also online), or **✍️ typed in**.
   You check everything the AI read before it's saved. Recipes without a web page keep their method and photos.
-- **Settings** (top right) – family members (likes, dislikes, allergies), the usual week (which meals, who eats),
-  planning rules, pantry and freezer staples and menu creation settings (cooking times, cuisines, recipe sources...). All of it, plus past menus and feedback, goes into AI planning.
+- **Settings** (top right) – the people in the household, family members (likes, dislikes, allergies), the usual
+  week (which meals, who eats), planning rules, pantry and freezer staples, menu creation settings (cooking times,
+  cuisines, recipe sources...) and the household's AI use. All of it, plus past menus and feedback, goes into AI
+  planning.
+
+## Households
+
+Everything (menus, recipes, shopping lists, family members, settings) belongs to a household, and everyone in a
+household sees and changes the same data. Each email address belongs to one household.
+
+- **Registering** (`/accounts/register/`, linked from the login page): name, email and an optional household
+  name. The account is created once the emailed code is entered. The new household can use the app straight
+  away; **AI** (menus, reading recipes) starts once an admin approves it. Admins get an email for every new
+  household. `REGISTRATION_OPEN=false` closes registration; households can then only be added with `adduser`.
+- **People** (Settings): anyone in the household can add someone by email (they get an email and log in with
+  a code) or remove someone; removing deletes their login (admins keep theirs, in a household of their own).
+  The last person can't be removed.
+- **Admin** (Settings → Admin, `/manage/`, for staff users): households waiting for AI, every household's AI
+  costs today, this month and in total, costs by model, approving or switching off AI, a household's own
+  daily limit, and suspending a household (its members can't log in).
+- **AI costs** are written to a ledger for every call to OpenAI, also when a request fails or is discarded.
+  Each household may spend `AI_DAILY_LIMIT_USD` (default 0.20) a day, unless the admin page gives it another
+  limit (0 switches its AI off), and all households together `AI_GLOBAL_DAILY_LIMIT_USD` (default 2.00).
+  The limits are checked before a request starts, so a running one can end a day slightly above them.
+  Settings shows each household what it used today and this month.
 
 ## AI menu planning
 
@@ -61,30 +89,33 @@ shopping list follows. See `meals/planner.py`.
 - For better (and pricier) plans set `AI_MODEL=gpt-6.1-sol` or OpenAI's flagship `gpt-6-astra`.
   `AI_EFFORT` sets the reasoning effort (low, medium, high, xhigh).
 - **Change menu** re-plans a week that already has meals; **↻** on a meal card replaces just that dish (and
-  its leftovers) after asking why. Neither changes the week's "About this menu".
+  its leftovers) after asking why. Creating or changing the menu rewrites the week's "About this menu";
+  replacing a dish keeps it.
 - **Recipe sources** (household settings) are websites or names, searched first; with "recipes from other
   sources: never" and only websites listed, the web search is limited to those sites. The week page shows
   how many recipes came from your recipe websites.
 - Recipe links are cleaned up (e.g. `tollbit.` hosts) and dropped if the page doesn't exist.
-- The rest of the family gets an email when a menu is created or changed (`MENU_EMAILS`, links use
+- Everyone in the household, including the person who asked, gets an email when a menu is created or changed (`MENU_EMAILS`, links use
   `SITE_URL` or the first `CSRF_TRUSTED_ORIGINS` entry).
 - Recipe links are only fetched from public web addresses, never from devices on the home network.
 - Recipe photos are scaled down on the phone and again on the server (max 2000 px, metadata removed), stored
-  in `data/media` and only shown to logged-in users. Reading one costs about a cent with `gpt-5.4-mini`.
-- Each request's prompt, raw answer, token counts, web searches and cost are in the admin (Menu requests).
+  in `data/media` and only shown to the household's members. Reading one costs about a cent with `gpt-5.4-mini`.
+- Each request's prompt, raw answer, token counts, web searches and cost are in the database admin (Menu
+  requests); every call's cost is in AI usage. Daily limits: see [Households](#households).
   A request has 12 minutes; after 15 it counts as stalled and saves nothing.
 
 ## Login
 
 There are no passwords. A user enters their email and gets a six-digit code (valid 10 minutes).
-Only users that already exist can log in. At most 5 codes are sent per address every 15 minutes. Add them with:
+Only users that already exist (registered, added by someone in their household or with `adduser`) can log in.
+At most 5 codes are sent per address every 15 minutes. From the command line:
 
 ```sh
-python manage.py adduser you@example.com --name "You" --admin    # with admin access
-python manage.py adduser partner@example.com --name "Partner"
+python manage.py adduser you@example.com --name "You" --admin            # admin; their household may use AI
+python manage.py adduser partner@example.com --name "Partner" --join you@example.com   # same household
 ```
 
-or via the Django admin at `/admin/`. If `EMAIL_HOST` is not set, emails are printed to the console / container logs.
+If `EMAIL_HOST` is not set, emails are printed to the console / container logs.
 
 ## Local development
 
@@ -118,7 +149,11 @@ docker compose up -d --build
   mode, so `db.sqlite3-wal` and `db.sqlite3-shm` belong to it. Recipe photos are in `data/media`.
   The container runs as UID 1000, so that folder must be writable for it.
 - Migrations run automatically on container start.
-- `INITIAL_ADMIN_EMAIL` in `.env` creates the first admin user on startup.
+- `INITIAL_ADMIN_EMAIL` in `.env` creates the first admin user on startup (in a household of their own,
+  allowed to use AI).
+- Upgrading from the single-family version: the first migration puts all existing data and users into one
+  household ("Our family", AI allowed). Rename it in Settings; an admin account that isn't part of the family
+  can be removed there (it keeps its login, in a household of its own).
 - Health check: `GET /health/`.
 - Run management commands with `docker compose exec chef python manage.py <command>`.
 
@@ -145,10 +180,13 @@ environment variables in the NAS project and never in git.
 ## Layout
 
 - `config/` – settings (all configured through environment variables), URLs, WSGI
-- `accounts/` – email-based user model, login codes (rate limited), `adduser` command
-- `meals/` – menu, shopping list, family and AI planning
-  - `views/` – `menu.py`, `shopping.py`, `family.py`, `planning.py`, shared helpers in `common.py`
-  - `planner.py` – prompt, OpenAI call, link checks and saving the menu; `notify.py` – menu emails
+- `accounts/` – email-based user model, login codes (rate limited), registration, `adduser` command
+- `meals/` – households, menu, shopping list, family and AI planning
+  - `models.py` – `Household` owns everything; `middleware.py` sets `request.household` for every page
+  - `views/` – `menu.py`, `shopping.py`, `family.py` (settings), `people.py`, `planning.py`, `recipes.py`,
+    `manage.py` (admin page), shared helpers in `common.py`
+  - `planner.py` – prompt, OpenAI call, link checks and saving the menu; `notify.py` – emails
+  - `budget.py` – the AI cost ledger and daily limits
   - `recipe_import.py` – reading recipes from photos; `photos.py` – scaling and cleaning photos
   - `shopping.py` – building the list; `schedule.py` – the usual week and the meals grid
 - `core/` – health check, web app manifest, service worker

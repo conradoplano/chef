@@ -18,5 +18,6 @@
       </div>
       <button class="wide" type="submit">{% if dev_login %}Sign in{% else %}Send me a code{% endif %}</button>
     </form>
+    {% if registration_open %}<p class="center">New here? <a href="{% url 'accounts:register' %}">Create an account</a></p>{% endif %}
   </div>
 {% endblock %}

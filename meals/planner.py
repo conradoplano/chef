@@ -24,8 +24,8 @@ from django.conf import settings
 from django.db import close_old_connections, transaction
 from django.utils import timezone
 
-from . import notify
-from .models import Category, Dish, FamilyMember, Feedback, Household, Ingredient, MenuRequest, PlannedMeal, Rule
+from . import budget, notify
+from .models import AIUsage, Category, Dish, FamilyMember, Feedback, Household, Ingredient, MenuRequest, PlannedMeal, Rule
 
 logger = logging.getLogger(__name__)
 
@@ -204,16 +204,16 @@ def _feedback_text(review):
 def build_prompt(request):
     """The user message: everything the model needs to know about the family and this week."""
     today = timezone.localdate()
-    members = list(FamilyMember.objects.all())
+    household = request.household
+    members = list(FamilyMember.objects.filter(household=household))
     names = {m.pk: m for m in members}
-    household = Household.load()
     week_end = request.week + timedelta(days=6)
     out = [f"Today is {today:%A %d %B %Y}. Plan the menu for the week of {request.week:%A %d %B} to {week_end:%A %d %B %Y}."]
 
     out.append("\n## Family")
     out += [_member_line(m, today) for m in members] or ["(No family members entered yet.)"]
 
-    rules = Rule.objects.filter(active=True)
+    rules = Rule.objects.filter(household=household, active=True)
     if rules:
         out.append("\n## Rules")
         out += [f"- {r.text}" for r in rules]
@@ -242,7 +242,7 @@ def build_prompt(request):
         out += [f"- {label}: {value}" for label, value in settings_lines]
 
     for status, title in [(Dish.Status.FAVOURITE, "Recipe binder: favourites"), (Dish.Status.TRY, "Recipe binder: want to try")]:
-        saved = Dish.objects.filter(status=status).order_by("-saved_at")[:40]
+        saved = Dish.objects.filter(household=household, status=status).order_by("-saved_at")[:40]
         if saved:
             out.append(f"\n## {title}")
             for dish in saved:
@@ -251,7 +251,7 @@ def build_prompt(request):
                 out.append(f"- {dish.name}" + (f" ({', '.join(details)})" if details else ""))
 
     history = (
-        PlannedMeal.objects.filter(date__gte=request.week - timedelta(weeks=8), date__lt=request.week)
+        PlannedMeal.objects.filter(household=household, date__gte=request.week - timedelta(weeks=8), date__lt=request.week)
         .select_related("dish", "feedback")
         .order_by("-date", "-slot")
     )
@@ -269,7 +269,7 @@ def build_prompt(request):
             out.append(line)
 
     older = (
-        Feedback.objects.filter(meal__date__lt=request.week - timedelta(weeks=8))
+        Feedback.objects.filter(meal__household=household, meal__date__lt=request.week - timedelta(weeks=8))
         .select_related("meal__dish")
         .order_by("-meal__date")[:40]
     )
@@ -277,7 +277,7 @@ def build_prompt(request):
         out.append("\n## Older feedback")
         out += [f"- {f.meal.dish.name} ({f.meal.date:%b %Y}): {_feedback_text(f)}" for f in older]
 
-    existing = PlannedMeal.objects.filter(date__range=(request.week, week_end)).select_related("dish")
+    existing = PlannedMeal.objects.filter(household=household, date__range=(request.week, week_end)).select_related("dish")
     requested = {(s["date"], s["slot"]) for s in request.slots}
     kept = [m for m in existing if request.keep_existing or (m.date.isoformat(), m.slot) not in requested]
     if kept:
@@ -313,11 +313,29 @@ def to_plan(request, taken=frozenset()):
 # --- calling the model ---------------------------------------------------------
 
 
-def ask_model(prompt):
+def response_usage(response):
+    """Tokens and web searches of one response."""
+    tokens = response.usage
+    return {
+        "input": (tokens.input_tokens or 0) if tokens else 0,
+        "output": (tokens.output_tokens or 0) if tokens else 0,
+        "searches": sum(1 for i in response.output if i.type == "web_search_call"),
+    }
+
+
+def add_usage(totals, job, kind, response):
+    """Adds a response to the job's totals and writes it to the ledger (also when the job fails later)."""
+    usage = response_usage(response)
+    budget.record(job, kind, settings.AI_MODEL, usage)
+    for key, value in usage.items():
+        totals[key] += value
+
+
+def ask_model(prompt, request):
     """Runs the request until the model calls save_menu.
     Returns (parsed arguments, raw arguments, usage totals)."""
     client = get_client()
-    household = Household.load()
+    household = request.household
     usage = {"input": 0, "output": 0, "searches": 0}
     previous_id = None
     next_input = [{"role": "user", "content": prompt}]
@@ -337,10 +355,7 @@ def ask_model(prompt):
             max_output_tokens=64000,
             **({"previous_response_id": previous_id} if previous_id else {}),
         )
-        if response.usage:
-            usage["input"] += response.usage.input_tokens or 0
-            usage["output"] += response.usage.output_tokens or 0
-        usage["searches"] += sum(1 for i in response.output if i.type == "web_search_call")
+        add_usage(usage, request, AIUsage.Kind.MENU, response)
 
         call = next((i for i in response.output if i.type == "function_call" and i.name == "save_menu"), None)
         if call is not None:
@@ -436,7 +451,8 @@ def save_menu(request, data):
         # Marked as stale meanwhile; the family may already have started a new request.
         raise PlanningError("This took too long and was stopped. Please try again.")
     week_end = request.week + timedelta(days=6)
-    existing = PlannedMeal.objects.filter(date__range=(request.week, week_end))
+    household = request.household
+    existing = PlannedMeal.objects.filter(household=household, date__range=(request.week, week_end))
     if request.keep_existing:
         taken = {(m.date.isoformat(), m.slot) for m in existing}
     else:
@@ -445,7 +461,7 @@ def save_menu(request, data):
             existing.filter(date=slot["date"], slot=slot["slot"]).delete()
         taken = {(m.date.isoformat(), m.slot) for m in existing.all()}
     wanted = {(s["date"], s["slot"]): s for s in to_plan(request, taken)}
-    members = {m.pk: m for m in FamilyMember.objects.all()}
+    members = {m.pk: m for m in FamilyMember.objects.filter(household=household)}
 
     saved = 0
     for item in data.get("meals", []):
@@ -456,10 +472,10 @@ def save_menu(request, data):
             logger.warning("Skipping meal outside the request: %s %s", key, name)
             continue
         leftovers = bool(item.get("leftovers"))
-        dish = Dish.objects.filter(name__iexact=name).first()
+        dish = Dish.objects.filter(household=household, name__iexact=name).first()
         is_new = dish is None
         if is_new:
-            dish = Dish(name=name)
+            dish = Dish(household=household, name=name)
         if item.get("kind") in KINDS and (is_new or dish.kind == Dish.Kind.OTHER):
             dish.kind = item["kind"]
         if item.get("minutes") and not leftovers and (is_new or not dish.minutes):
@@ -489,6 +505,7 @@ def save_menu(request, data):
         else:
             dish.save()
         meal = PlannedMeal.objects.create(
+            household=household,
             date=item["date"],
             slot=item["slot"],
             dish=dish,
@@ -521,13 +538,13 @@ def run(request_id):
     """Creates the menu for a MenuRequest. Safe to run in a thread."""
     notify_family = False
     try:
-        request = MenuRequest.objects.select_related("created_by").get(pk=request_id)
+        request = MenuRequest.objects.select_related("created_by", "household").get(pk=request_id)
         request.status = MenuRequest.Status.RUNNING
         request.save(update_fields=["status"])
         try:
             request.prompt = build_prompt(request)
             request.model = settings.AI_MODEL
-            data, request.response, usage = ask_model(request.prompt)
+            data, request.response, usage = ask_model(request.prompt, request)
             data = clean_links(data)
             request.input_tokens, request.output_tokens = usage["input"], usage["output"]
             request.web_searches = usage["searches"]

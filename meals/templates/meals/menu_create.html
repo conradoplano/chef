@@ -6,8 +6,8 @@
   <h2>✨ {% if changing %}Change{% else %}Create{% endif %} menu</h2>
   <p class="muted">Week of {{ start|date:"j M" }} – {{ end|date:"j M Y" }}. Check which meals are needed and who's eating; the menu and shopping list are created from that, your family profile, rules and past feedback.</p>
 
-  {% if not ai_enabled %}
-    <div class="flash error">Menu planning with AI isn't set up yet: add <code>OPENAI_API_KEY</code> to the app's settings (see the README).</div>
+  {% if ai_blocked %}
+    <div class="flash error">{{ ai_blocked }}</div>
   {% endif %}
   {% if not members %}
     <div class="flash">Tip: add your <a href="{% url 'meals:family' %}">family members</a> so the menu knows who's eating and what they like.</div>
@@ -33,7 +33,7 @@
       <textarea id="details" name="details" rows="4" placeholder="E.g. guests on Saturday (2 adults), use up the courgettes in the fridge, something quick on Wednesday, the kids want pancakes">{{ details }}</textarea>
     </div>
 
-    <button class="wide" type="submit"{% if not ai_enabled %} disabled{% endif %}>✨ {% if changing %}Change{% else %}Create{% endif %} menu</button>
+    <button class="wide" type="submit"{% if ai_blocked %} disabled{% endif %}>✨ {% if changing %}Change{% else %}Create{% endif %} menu</button>
     <p class="muted small center">This takes a minute or two.</p>
   </form>
 {% endblock %}

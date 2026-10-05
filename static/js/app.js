@@ -213,6 +213,15 @@
     pickSearch.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); filter(); } });
   }
 
+  // --- Forms that need a second thought, e.g. removing a person: <form data-confirm="Question?">. ---
+  document.addEventListener('submit', (event) => {
+    const question = event.target.dataset.confirm;
+    if (question && !window.confirm(question)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+
   // --- Installable app: pass-through service worker. ---
   const swUrl = document.body.dataset.swUrl;
   if (swUrl && 'serviceWorker' in navigator) navigator.serviceWorker.register(swUrl);

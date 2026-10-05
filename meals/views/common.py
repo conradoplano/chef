@@ -56,10 +56,10 @@ def week_context(request, day):
     }
 
 
-def planned_meals(start, end, today):
-    """Meals between two dates, prepared for the meal card template."""
+def planned_meals(household, start, end, today):
+    """The household's meals between two dates, prepared for the meal card template."""
     meals = list(
-        PlannedMeal.objects.filter(date__range=(start, end)).select_related("dish", "feedback").prefetch_related("dish__photos")
+        PlannedMeal.objects.filter(household=household, date__range=(start, end)).select_related("dish", "feedback").prefetch_related("dish__photos")
     )
     for meal in meals:
         meal.review = getattr(meal, "feedback", None)
@@ -74,10 +74,10 @@ def planned_meals(start, end, today):
     return meals
 
 
-def days_with_meals(start, end, today):
+def days_with_meals(household, start, end, today):
     """[{date, meals}] for every day from start to end, for the day template."""
     by_date = {}
-    for meal in planned_meals(start, end, today):
+    for meal in planned_meals(household, start, end, today):
         by_date.setdefault(meal.date, []).append(meal)
     return [{"date": start + timedelta(days=i), "meals": by_date.get(start + timedelta(days=i), [])}
             for i in range((end - start).days + 1)]
@@ -89,18 +89,22 @@ def leftovers_after(meal):
         return []
     return list(
         PlannedMeal.objects.filter(
-            dish=meal.dish, leftovers=True, date__gt=meal.date, date__lte=week_start(meal.date) + timedelta(days=6)
+            household=meal.household_id, dish=meal.dish, leftovers=True, date__gt=meal.date, date__lte=week_start(meal.date) + timedelta(days=6)
         ).prefetch_related("eaters")
     )
 
 
 def plan_dish(dish, day, slot, user, leftovers=False):
-    """Puts a dish on the menu, for the people who usually eat that meal."""
+    """Puts a dish on its household's menu, for the people who usually eat that meal."""
     from .. import schedule
     from ..models import FamilyMember
 
-    meal = PlannedMeal.objects.create(date=day, slot=slot, dish=dish, leftovers=leftovers, updated_by=user)
-    meal.eaters.set(schedule.usual_week(list(FamilyMember.objects.all()))[day.weekday()][slot]["eaters"])
+    household = dish.household
+    meal = PlannedMeal.objects.create(
+        household=household, date=day, slot=slot, dish=dish, leftovers=leftovers, updated_by=user
+    )
+    members = list(FamilyMember.objects.filter(household=household))
+    meal.eaters.set(schedule.usual_week(household, members)[day.weekday()][slot]["eaters"])
     return meal
 
 
@@ -128,9 +132,9 @@ def back_to(request, day):
     return redirect(back_url(request, day))
 
 
-def running_request(week):
-    """The menu request in progress for a week, if any (stale ones are expired first)."""
+def running_request(household, week):
+    """The household's menu request in progress for a week, if any (stale ones are expired first)."""
     planner.expire_stale()
     return MenuRequest.objects.filter(
-        week=week, status__in=[MenuRequest.Status.PENDING, MenuRequest.Status.RUNNING]
+        household=household, week=week, status__in=[MenuRequest.Status.PENDING, MenuRequest.Status.RUNNING]
     ).first()

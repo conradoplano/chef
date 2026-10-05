@@ -13,7 +13,7 @@ from django.views.decorators.http import require_POST
 
 from .. import planner
 from ..forms import DishServingsForm, FeedbackForm, IngredientFormSet, PlannedMealForm, UNITS
-from ..models import Dish, Feedback, Household, Ingredient, MenuRequest, PlannedMeal, RecipeImport
+from ..models import Dish, Feedback, Ingredient, MenuRequest, PlannedMeal, RecipeImport
 from .common import (
     back_to,
     back_url,
@@ -32,23 +32,24 @@ def home(request):
     today = timezone.localdate()
     hour = timezone.localtime().hour
     greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
+    household = request.household
     sunday = week_start(today) + timedelta(days=6)
     if today < sunday:
-        coming, coming_title, coming_week = days_with_meals(today + timedelta(days=1), sunday, today), "Rest of the week", week_start(today)
+        coming, coming_title, coming_week = days_with_meals(household, today + timedelta(days=1), sunday, today), "Rest of the week", week_start(today)
     else:
         # On Sundays, look ahead to the next working week.
-        coming, coming_title, coming_week = days_with_meals(today + timedelta(days=1), today + timedelta(days=5), today), "Next week", today + timedelta(days=1)
+        coming, coming_title, coming_week = days_with_meals(household, today + timedelta(days=1), today + timedelta(days=5), today), "Next week", today + timedelta(days=1)
     return render(
         request,
         "meals/home.html",
         {
             "today": today,
             "greeting": greeting,
-            "meals": planned_meals(today, today, today),
+            "meals": planned_meals(household, today, today, today),
             "coming": coming,
             "coming_title": coming_title,
             "coming_week": coming_week,
-            "ready_imports": RecipeImport.objects.filter(status=RecipeImport.Status.DONE).count(),
+            "ready_imports": RecipeImport.objects.filter(household=household, status=RecipeImport.Status.DONE).count(),
         },
     )
 
@@ -57,15 +58,18 @@ def home(request):
 def menu(request, day=None):
     context = week_context(request, day)
     start, end = context["start"], context["end"]
-    context["days"] = days_with_meals(start, end, context["today"])
+    household = request.household
+    context["days"] = days_with_meals(household, start, end, context["today"])
     context["meal_count"] = sum(len(d["meals"]) for d in context["days"])
-    context["from_sources"] = recipes_from_sources([m for d in context["days"] for m in d["meals"]])
+    context["from_sources"] = recipes_from_sources(household, [m for d in context["days"] for m in d["meals"]])
     planner.expire_stale()
-    context["ai_enabled"] = planner.enabled()
-    context["menu_request"] = MenuRequest.objects.filter(week=start).first()
-    # "About this menu" comes from the last time the menu was created, not from later changes.
+    context["menu_request"] = MenuRequest.objects.filter(household=household, week=start).first()
+    # "About this menu" comes from the last time the whole menu was created or changed; replacing one dish keeps it.
     context["about"] = (
-        MenuRequest.objects.filter(week=start, kind=MenuRequest.Kind.CREATE, status=MenuRequest.Status.DONE)
+        MenuRequest.objects.filter(
+            household=household, week=start, kind__in=[MenuRequest.Kind.CREATE, MenuRequest.Kind.CHANGE],
+            status=MenuRequest.Status.DONE,
+        )
         .exclude(summary="")
         .first()
     )
@@ -74,7 +78,8 @@ def menu(request, day=None):
 
 @login_required
 def meal_edit(request, pk=None):
-    meal = get_object_or_404(PlannedMeal.objects.select_related("dish"), pk=pk) if pk else None
+    household = request.household
+    meal = get_object_or_404(PlannedMeal.objects.select_related("dish"), pk=pk, household=household) if pk else None
     leftovers = leftovers_after(meal) if meal else []
     if request.method == "POST" and meal and "delete" in request.POST:
         meal.delete()
@@ -90,7 +95,7 @@ def meal_edit(request, pk=None):
         initial["date"] = parse_date(request.GET["date"]) if request.GET.get("date") else timezone.localdate()
         if request.GET.get("slot") in PlannedMeal.Slot.values:
             initial["slot"] = request.GET["slot"]
-    form = PlannedMealForm(request.POST or None, instance=meal, initial=initial)
+    form = PlannedMealForm(request.POST or None, instance=meal, initial=initial, household=household)
     if request.method == "POST" and form.is_valid():
         is_new = meal is None
         meal = form.save(commit=False)
@@ -107,13 +112,13 @@ def meal_edit(request, pk=None):
     return render(
         request,
         "meals/meal_edit.html",
-        {"form": form, "meal": meal, "leftovers": leftovers, "dishes": Dish.objects.values_list("name", flat=True)},
+        {"form": form, "meal": meal, "leftovers": leftovers, "dishes": Dish.objects.filter(household=household).values_list("name", flat=True)},
     )
 
 
 @login_required
 def feedback(request, pk):
-    meal = get_object_or_404(PlannedMeal.objects.select_related("dish"), pk=pk)
+    meal = get_object_or_404(PlannedMeal.objects.select_related("dish"), pk=pk, household=request.household)
     review = Feedback.objects.filter(meal=meal).first()
     if request.method == "POST" and review and "delete" in request.POST:
         review.delete()
@@ -136,7 +141,7 @@ def feedback(request, pk):
 def feedback_quick(request, pk):
     """One-tap feedback from the meal card: the same rating for kids and parents.
     Tapping the rating that is already set clears it again."""
-    meal = get_object_or_404(PlannedMeal.objects.select_related("dish"), pk=pk)
+    meal = get_object_or_404(PlannedMeal.objects.select_related("dish"), pk=pk, household=request.household)
     rating = request.POST.get("rating", "")
     if rating not in Feedback.Rating.values:
         raise Http404("Unknown rating")
@@ -158,7 +163,7 @@ def feedback_quick(request, pk):
 
 @login_required
 def ingredients(request, pk):
-    dish = get_object_or_404(Dish, pk=pk)
+    dish = get_object_or_404(Dish, pk=pk, household=request.household)
     formset = IngredientFormSet(request.POST or None, instance=dish)
     servings_form = DishServingsForm(request.POST or None, instance=dish, prefix="dish")
     if request.method == "POST" and formset.is_valid() and servings_form.is_valid():
@@ -166,7 +171,7 @@ def ingredients(request, pk):
         formset.save()
         messages.success(request, f"Saved ingredients for {dish}.")
         return redirect(safe_next(request) or reverse("meals:shopping"))
-    names = sorted(set(Ingredient.objects.values_list("name", flat=True)), key=str.lower)
+    names = ingredient_names(request.household)
     return render(
         request,
         "meals/ingredients.html",
@@ -178,20 +183,19 @@ def ingredients(request, pk):
 def menu_copy(request, day):
     """Copies the meals of an earlier week into this one, keeping weekday and meal."""
     start = week_start(parse_date(day))
+    meals = PlannedMeal.objects.filter(household=request.household)
     if request.method == "POST":
         source = week_start(parse_date(request.POST.get("source")))
-        taken = {
-            (m.date, m.slot) for m in PlannedMeal.objects.filter(date__range=(start, start + timedelta(days=6)))
-        }
+        taken = {(m.date, m.slot) for m in meals.filter(date__range=(start, start + timedelta(days=6)))}
         copied = skipped = 0
         offset = start - source
-        for meal in PlannedMeal.objects.filter(date__range=(source, source + timedelta(days=6))).prefetch_related("eaters"):
+        for meal in meals.filter(date__range=(source, source + timedelta(days=6))).prefetch_related("eaters"):
             target = meal.date + offset
             if (target, meal.slot) in taken:
                 skipped += 1
                 continue
             copy = PlannedMeal.objects.create(
-                date=target, slot=meal.slot, dish_id=meal.dish_id, leftovers=meal.leftovers, note=meal.note,
+                household=request.household, date=target, slot=meal.slot, dish_id=meal.dish_id, leftovers=meal.leftovers, note=meal.note,
                 servings=meal.servings, updated_by=request.user,
             )
             copy.eaters.set(meal.eaters.all())
@@ -203,7 +207,7 @@ def menu_copy(request, day):
         return redirect("meals:menu_of", day=start.isoformat())
 
     weeks = {}
-    for meal in PlannedMeal.objects.exclude(date__range=(start, start + timedelta(days=6))).select_related("dish").order_by("-date"):
+    for meal in meals.exclude(date__range=(start, start + timedelta(days=6))).select_related("dish").order_by("-date"):
         week = week_start(meal.date)
         if week not in weeks and len(weeks) >= 12:
             break
@@ -216,10 +220,10 @@ def menu_copy(request, day):
     return render(request, "meals/menu_copy.html", {"start": start, "end": start + timedelta(days=6), "weeks": choices})
 
 
-def recipes_from_sources(meals):
+def recipes_from_sources(household, meals):
     """(from your recipe websites, recipes with a link) for cooked meals, or None without websites.
     Only websites can be checked; names like "Jamie Oliver" have no known address."""
-    domains, _ = planner.recipe_sources(Household.load().recipe_sites)
+    domains, _ = planner.recipe_sources(household.recipe_sites)
     if not domains:
         return None
     hosts = [
@@ -230,3 +234,8 @@ def recipes_from_sources(meals):
         return None
     ours = sum(any(h == d or h.endswith("." + d) for d in domains) for h in hosts)
     return {"ours": ours, "total": len(hosts)}
+
+
+def ingredient_names(household):
+    """Ingredient names the household has used, as suggestions."""
+    return sorted(set(Ingredient.objects.filter(dish__household=household).values_list("name", flat=True)), key=str.lower)

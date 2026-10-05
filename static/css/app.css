@@ -432,3 +432,16 @@ table.kv.wrap td:last-child { white-space: normal; text-align: left; overflow-wr
 .pick-more .steps { margin-top: .4rem; }
 [hidden] { display: none !important; }
 .item-tools form { display: flex; }
+
+/* Settings: people. Admin: households. */
+.people { margin: .75rem 0; }
+.people li { align-items: flex-start; }
+button.small:not(.link) { min-height: 2rem; padding: .25rem .75rem; font-size: .85rem; line-height: 1.2; }
+.badge.danger { background: #fbe4e1; color: var(--neg); }
+.household-row { padding: .6rem 0; border-top: 1px solid var(--border); }
+.household-row > div + div { margin-top: .2rem; }
+.household-row.off strong { color: var(--muted); }
+.household-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; margin-top: .4rem; }
+.household-actions form { display: flex; align-items: center; gap: .35rem; }
+.limit-form input { width: 5.5rem; min-height: 2rem; padding: .2rem .4rem; }
+table.kv.models td { text-align: left; white-space: nowrap; padding-left: 0; padding-right: .75rem; }

@@ -1,4 +1,4 @@
-Hi {{ user.get_short_name }},
+Hi{% if name %} {{ name }}{% endif %},
 
 Your {{ site_name|default:"Chef" }} login code is:
 

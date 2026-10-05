@@ -5,6 +5,7 @@ All deployment-specific values come from environment variables so the same
 image can run locally and on the NAS.
 """
 import os
+from decimal import Decimal
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -57,6 +58,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "meals.middleware.HouseholdMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
@@ -160,7 +162,13 @@ RECIPE_PHOTOS_PER_IMPORT = 6
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 AI_MODEL = os.environ.get("AI_MODEL", "gpt-5.4-mini")
 AI_EFFORT = os.environ.get("AI_EFFORT", "medium")
-# Email the rest of the family when a menu is created or changed (uses the SMTP settings above).
+# What households may spend on AI per day (USD): each one (admins can set another limit per
+# household), and all of them together.
+AI_DAILY_LIMIT_USD = Decimal(os.environ.get("AI_DAILY_LIMIT_USD", "0.20"))
+AI_GLOBAL_DAILY_LIMIT_USD = Decimal(os.environ.get("AI_GLOBAL_DAILY_LIMIT_USD", "2.00"))
+# Anyone can register a household (AI after an admin approves it). Set to false to invite only.
+REGISTRATION_OPEN = env_bool("REGISTRATION_OPEN", True)
+# Email the household (including whoever asked) when a menu is created or changed (uses the SMTP settings above).
 MENU_EMAILS = env_bool("MENU_EMAILS", True)
 # Address of the app, for links in emails; defaults to the first CSRF_TRUSTED_ORIGINS entry.
 SITE_URL = os.environ.get("SITE_URL", "")

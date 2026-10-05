@@ -27,7 +27,7 @@ from django.db import close_old_connections
 from django.utils import timezone
 
 from . import planner
-from .models import Category, Dish, Household, RecipeImport
+from .models import AIUsage, Category, Dish, RecipeImport
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +205,7 @@ def photo_content(photos):
 # --- reading -------------------------------------------------------------------------
 
 
-def ask_model(content):
+def ask_model(content, job):
     """Returns (parsed arguments, usage totals)."""
     client = planner.get_client()
     usage = {"input": 0, "output": 0, "searches": 0}
@@ -219,16 +219,13 @@ def ask_model(content):
             model=settings.AI_MODEL,
             instructions=SYSTEM_PROMPT,
             input=next_input,
-            tools=[planner.web_search_tool(Household.load()), SAVE_RECIPE_TOOL],
+            tools=[planner.web_search_tool(job.household), SAVE_RECIPE_TOOL],
             tool_choice="auto",
             reasoning={"effort": settings.AI_EFFORT},
             max_output_tokens=32000,
             **({"previous_response_id": previous_id} if previous_id else {}),
         )
-        if response.usage:
-            usage["input"] += response.usage.input_tokens or 0
-            usage["output"] += response.usage.output_tokens or 0
-        usage["searches"] += sum(1 for i in response.output if i.type == "web_search_call")
+        planner.add_usage(usage, job, AIUsage.Kind.RECIPE, response)
         call = next((i for i in response.output if i.type == "function_call" and i.name == "save_recipe"), None)
         if call is not None:
             try:
@@ -280,7 +277,7 @@ def tidy(data, page_url=""):
 def run(import_id):
     """Reads the photos of a RecipeImport. Safe to run in a thread."""
     try:
-        job = RecipeImport.objects.get(pk=import_id)
+        job = RecipeImport.objects.select_related("household").get(pk=import_id)
         job.status = RecipeImport.Status.RUNNING
         job.model = settings.AI_MODEL
         job.save(update_fields=["status", "model"])
@@ -292,7 +289,7 @@ def run(import_id):
                 if not photos:
                     raise planner.PlanningError("There are no photos to read.")
                 content = photo_content(photos)
-            data, usage = ask_model(content)
+            data, usage = ask_model(content, job)
             job.input_tokens, job.output_tokens, job.web_searches = usage["input"], usage["output"], usage["searches"]
             job.cost = planner.cost(job.model, usage)
             if not data.get("is_recipe", True):

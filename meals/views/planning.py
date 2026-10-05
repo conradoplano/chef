@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 
-from .. import planner, schedule
+from .. import budget, planner, schedule
 from ..models import FamilyMember, MenuRequest, PlannedMeal
 from .common import leftovers_after, parse_date, running_request, week_start
 
@@ -16,14 +16,15 @@ from .common import leftovers_after, parse_date, running_request, week_start
 @login_required
 def menu_create(request, day):
     start = week_start(parse_date(day))
-    running = running_request(start)
+    household = request.household
+    running = running_request(household, start)
     if running:
         return redirect("meals:menu_request", pk=running.pk)
 
-    members = list(FamilyMember.objects.all())
+    members = list(FamilyMember.objects.filter(household=household))
     keys = schedule.week_keys(start)
     existing = list(
-        PlannedMeal.objects.filter(date__range=(start, start + timedelta(days=6)))
+        PlannedMeal.objects.filter(household=household, date__range=(start, start + timedelta(days=6)))
         .select_related("dish")
         .prefetch_related("eaters")
     )
@@ -41,11 +42,12 @@ def menu_create(request, day):
         ]
         if not slots:
             errors.append("Choose at least one meal to plan.")
-        if not planner.enabled():
-            errors.append("Menu planning with AI isn't set up yet (OPENAI_API_KEY is missing).")
+        blocked = budget.blocked(household)
+        if blocked:
+            errors.append(blocked)
         if not errors:
             menu_request = MenuRequest.objects.create(
-                week=start, slots=slots, keep_existing=keep_existing, details=details.strip(),
+                household=household, week=start, slots=slots, keep_existing=keep_existing, details=details.strip(),
                 kind=MenuRequest.Kind.CHANGE if changing else MenuRequest.Kind.CREATE,
                 created_by=request.user,
             )
@@ -54,7 +56,7 @@ def menu_create(request, day):
         for error in errors:
             messages.error(request, error)
     else:
-        usual = schedule.usual_week(members)
+        usual = schedule.usual_week(household, members)
         grid = {key: {slot: dict(entry) for slot, entry in usual[i].items()} for i, (key, _) in enumerate(keys)}
         for meal in existing:
             # Every planned meal is ticked, for the people it was planned for.
@@ -81,7 +83,7 @@ def menu_create(request, day):
             "existing": existing,
             "details": details,
             "keep_existing": keep_existing,
-            "ai_enabled": planner.enabled(),
+            "ai_blocked": budget.blocked(household),
         },
     )
 
@@ -89,7 +91,7 @@ def menu_create(request, day):
 @login_required
 def menu_request(request, pk):
     planner.expire_stale()
-    menu_request = get_object_or_404(MenuRequest, pk=pk)
+    menu_request = get_object_or_404(MenuRequest, pk=pk, household=request.household)
     if menu_request.status == MenuRequest.Status.DONE:
         return redirect("meals:menu_of", day=menu_request.week.isoformat())
     return render(request, "meals/menu_request.html", {"menu_request": menu_request})
@@ -98,7 +100,7 @@ def menu_request(request, pk):
 @login_required
 def menu_request_status(request, pk):
     planner.expire_stale()
-    menu_request = get_object_or_404(MenuRequest, pk=pk)
+    menu_request = get_object_or_404(MenuRequest, pk=pk, household=request.household)
     return JsonResponse({
         "status": menu_request.status,
         "finished": menu_request.finished,
@@ -110,18 +112,22 @@ def menu_request_status(request, pk):
 @login_required
 def meal_replace(request, pk):
     """Asks the AI for a different dish for one meal, keeping the rest of the week."""
-    meal = get_object_or_404(PlannedMeal.objects.select_related("dish").prefetch_related("eaters"), pk=pk)
+    household = request.household
+    meal = get_object_or_404(
+        PlannedMeal.objects.select_related("dish").prefetch_related("eaters"), pk=pk, household=household
+    )
     start = week_start(meal.date)
-    running = running_request(start)
+    running = running_request(household, start)
     if running:
         return redirect("meals:menu_request", pk=running.pk)
+    blocked = budget.blocked(household)
     if request.method == "POST":
-        if not planner.enabled():
-            messages.error(request, "Menu planning with AI isn't set up yet (OPENAI_API_KEY is missing).")
+        if blocked:
+            messages.error(request, blocked)
             return redirect("meals:menu_of", day=meal.date.isoformat())
         # Leftovers of this dish later in the week go with it.
         meals = [meal, *leftovers_after(meal)]
-        usual = schedule.usual_week(list(FamilyMember.objects.all()))
+        usual = schedule.usual_week(household, list(FamilyMember.objects.filter(household=household)))
         slots = [
             {
                 "date": m.date.isoformat(),
@@ -131,10 +137,10 @@ def meal_replace(request, pk):
             for m in meals
         ]
         menu_request = MenuRequest.objects.create(
-            week=start, kind=MenuRequest.Kind.REPLACE, slots=slots, keep_existing=False,
+            household=household, week=start, kind=MenuRequest.Kind.REPLACE, slots=slots, keep_existing=False,
             replacing=meal.dish.name, details=request.POST.get("reason", "").strip()[:1000],
             created_by=request.user,
         )
         planner.start(menu_request)
         return redirect("meals:menu_request", pk=menu_request.pk)
-    return render(request, "meals/meal_replace.html", {"meal": meal, "ai_enabled": planner.enabled()})
+    return render(request, "meals/meal_replace.html", {"meal": meal, "ai_blocked": blocked})

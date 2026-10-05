@@ -6,8 +6,8 @@
   <p class="small"><a href="{% if next %}{{ next }}{% else %}{% url 'meals:recipes' %}{% endif %}">‹ {% if next %}Back{% else %}Recipes{% endif %}</a></p>
   <h2>Add a recipe</h2>
   {% if plan %}<p class="muted">It will be planned for {{ plan_day|date:"l j M" }}, {{ plan_slot }}.</p>{% endif %}
-  {% if not ai_enabled %}
-    <div class="flash">Reading links and photos needs AI, which isn't set up yet (<code>OPENAI_API_KEY</code>). You can still type recipes in.</div>
+  {% if ai_blocked %}
+    <div class="flash">Reading links and photos needs AI. {{ ai_blocked }} You can still type recipes in.</div>
   {% endif %}
 
   <section class="card add-way">
@@ -16,7 +16,7 @@
     <form method="post" action="{% url 'meals:recipe_link_new' %}" class="add-link">
       {% csrf_token %}{% if plan %}<input type="hidden" name="plan" value="{{ plan }}"><input type="hidden" name="next" value="{{ next }}">{% endif %}
       <input type="url" name="url" value="{{ url }}" placeholder="https://…" inputmode="url" autocomplete="off" required aria-label="Recipe address"{% if url %} autofocus{% endif %}>
-      <button type="submit"{% if not ai_enabled %} disabled{% endif %}>Get recipe</button>
+      <button type="submit"{% if ai_blocked %} disabled{% endif %}>Get recipe</button>
     </form>
   </section>
 
@@ -26,7 +26,7 @@
     <form method="post" action="{% url 'meals:recipe_photo_new' %}" enctype="multipart/form-data" class="add-photo">
       {% csrf_token %}{% if plan %}<input type="hidden" name="plan" value="{{ plan }}"><input type="hidden" name="next" value="{{ next }}">{% endif %}
       <input type="file" name="photos" accept="image/*" multiple data-resize required aria-label="Recipe photos">
-      <button type="submit"{% if not ai_enabled %} disabled{% endif %}>Read photos</button>
+      <button type="submit"{% if ai_blocked %} disabled{% endif %}>Read photos</button>
     </form>
   </section>
 

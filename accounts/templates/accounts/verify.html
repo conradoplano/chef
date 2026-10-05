@@ -5,14 +5,18 @@
 {% block content %}
   <div class="card narrow">
     <h2>Check your email</h2>
-    <p class="muted">If that address has an account, a six-digit code is on its way. It expires in a few minutes.</p>
+    {% if registering %}
+      <p class="muted">To confirm your email address, enter the six-digit code we've sent you. It expires in a few minutes.</p>
+    {% else %}
+      <p class="muted">If that address has an account, a six-digit code is on its way. It expires in a few minutes.</p>
+    {% endif %}
     <form method="post" class="stack">
       {% csrf_token %}
       <div class="field">
         {{ form.code.label_tag }}{{ form.code }}
         {{ form.code.errors }}
       </div>
-      <button class="wide" type="submit">Sign in</button>
+      <button class="wide" type="submit">{% if registering %}Create account{% else %}Sign in{% endif %}</button>
     </form>
     <p class="center"><a href="{% url 'accounts:login' %}">Use a different address</a></p>
   </div>

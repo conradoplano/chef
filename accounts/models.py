@@ -7,8 +7,13 @@ class UserManager(BaseUserManager):
     """Users are identified by email and never have a usable password."""
 
     def create_user(self, email, **extra_fields):
+        """Without a household, the user starts a new one of their own."""
         if not email:
             raise ValueError("An email address is required.")
+        if not extra_fields.get("household"):
+            from meals.models import Household
+
+            extra_fields["household"] = Household.objects.create()
         user = self.model(email=self.normalize_email(email).lower(), **extra_fields)
         user.set_unusable_password()
         user.save(using=self._db)
@@ -26,6 +31,10 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
+    # The family the user plans meals with. Everyone in a household sees and changes the same data.
+    household = models.ForeignKey(
+        "meals.Household", null=True, blank=True, on_delete=models.SET_NULL, related_name="members"
+    )
 
     objects = UserManager()
 

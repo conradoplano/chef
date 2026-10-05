@@ -10,6 +10,7 @@ from accounts.models import User
 
 from . import planner, recipe_import, shopping
 from .models import Dish, FamilyMember, PlannedMeal, RecipeImport, ShoppingCheck, WeeklyItem
+from .testing import approve_ai, home
 from .test_planner import FakeOpenAI, reply
 from .test_photos import recipe_call
 
@@ -26,7 +27,7 @@ class WeeklyItemTests(TestCase):
         return self.client.post(reverse("meals:weekly_item_add"), fields, follow=True)
 
     def _items(self, week=WEEK):
-        sections, at_home, _ = shopping.build(week)
+        sections, at_home, _ = shopping.build(home(), week)
         return {i.name: i for s in sections for i in s.items}
 
     def test_managed_in_settings(self):
@@ -39,28 +40,27 @@ class WeeklyItemTests(TestCase):
         self.assertFalse(WeeklyItem.objects.exists())
 
     def test_on_every_week_from_when_it_was_added(self):
-        item = WeeklyItem.objects.create(name="Bread", quantity="2 loaves", category="bakery")
+        item = WeeklyItem.objects.create(household=home(), name="Bread", quantity="2 loaves", category="bakery")
         WeeklyItem.objects.filter(pk=item.pk).update(created_at=timezone.make_aware(timezone.datetime(2026, 10, 7, 12)))
         self.assertEqual(self._items(WEEK)["Bread"].quantity, "2 loaves")  # the week it was added
         self.assertIn("Bread", self._items(WEEK + timedelta(weeks=3)))
         self.assertNotIn("Bread", self._items(WEEK - timedelta(weeks=1)))  # earlier weeks don't change
 
     def test_shown_like_a_meal_chip_without_skipping(self):
-        WeeklyItem.objects.create(name="Kids' snacks", category="breakfast")
+        WeeklyItem.objects.create(household=home(), name="Kids' snacks", category="breakfast")
         page = self.client.get(reverse("meals:shopping_of", args=[WEEK.isoformat()]))
         self.assertContains(page, '<span class="badge use">Every week</span>')
         self.assertNotContains(page, "Skip this week")
 
     def test_tick_and_never_a_staple(self):
-        item = WeeklyItem.objects.create(name="Pasta", category="pantry")
-        from .models import Household
-        household = Household.load()
+        item = WeeklyItem.objects.create(household=home(), name="Pasta", category="pantry")
+        household = home()
         household.pantry = "pasta"
         household.save()
         items = self._items()
         self.assertIn("Pasta", items)  # wanted every week, so not hidden under "Check at home"
         self.assertEqual(items["Pasta"].can_be_staple, "")
-        ShoppingCheck.objects.create(week=WEEK, key=f"weekly-{item.pk}")
+        ShoppingCheck.objects.create(household=home(), week=WEEK, key=f"weekly-{item.pk}")
         self.assertTrue(self._items()["Pasta"].checked)
 
 
@@ -76,13 +76,13 @@ class MealPickerTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(email="parent@example.com")
         self.client.force_login(self.user)
-        self.ana = FamilyMember.objects.create(name="Ana")
-        self.lasagne = Dish.objects.create(name="Lasagne", status="favourite", minutes=60)
+        self.ana = FamilyMember.objects.create(household=home(), name="Ana")
+        self.lasagne = Dish.objects.create(household=home(), name="Lasagne", status="favourite", minutes=60)
         self.lasagne.ingredients.create(name="Mince", quantity=500, unit="g", category="meat")
-        self.curry = Dish.objects.create(name="Thai green curry", status="try", notes="from the neighbours")
+        self.curry = Dish.objects.create(household=home(), name="Thai green curry", status="try", notes="from the neighbours")
         self.curry.ingredients.create(name="Coconut milk", quantity=1, unit="can", category="pantry")
-        self.soup = Dish.objects.create(name="Tomato soup")
-        PlannedMeal.objects.create(date=WEEK - timedelta(weeks=2), dish=self.soup)
+        self.soup = Dish.objects.create(household=home(), name="Tomato soup")
+        PlannedMeal.objects.create(household=home(), date=WEEK - timedelta(weeks=2), dish=self.soup)
         self.url = reverse("meals:meal_pick") + "?date=2026-10-07&next=/week/2026-10-05/"
 
     def test_day_add_opens_the_picker(self):
@@ -118,12 +118,12 @@ class MealPickerTests(TestCase):
 
     def test_slot_defaults_to_the_free_meal(self):
         self.assertEqual(self.client.get(self.url).context["slot"], "dinner")
-        PlannedMeal.objects.create(date=date(2026, 10, 7), dish=self.soup)
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 7), dish=self.soup)
         self.assertEqual(self.client.get(self.url).context["slot"], "lunch")
 
     def test_leftovers_from_earlier_this_week(self):
-        cooked = PlannedMeal.objects.create(date=date(2026, 10, 6), dish=self.lasagne, servings=8)
-        PlannedMeal.objects.create(date=date(2026, 10, 8), dish=self.curry)  # later: not offered
+        cooked = PlannedMeal.objects.create(household=home(), date=date(2026, 10, 6), dish=self.lasagne, servings=8)
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 8), dish=self.curry)  # later: not offered
         page = self.client.get(self.url)
         self.assertEqual(list(page.context["leftovers"]), [cooked])
         self.client.post(reverse("meals:meal_pick"), {"date": "2026-10-07", "slot": "lunch", "leftover": cooked.pk})
@@ -157,6 +157,7 @@ class PlannedRecipeFromLinkTests(TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.client.force_login(User.objects.create_user(email="parent@example.com"))
+        approve_ai()
         self.plan = {"plan": "2026-10-07:dinner", "next": "/week/2026-10-05/"}
 
     def test_link_recipe_is_planned_when_saved(self):
@@ -175,7 +176,7 @@ class PlannedRecipeFromLinkTests(TestCase):
         self.assertEqual((meal.dish.name, meal.date, meal.slot), ("Pad thai", date(2026, 10, 7), "dinner"))
 
     def test_known_link_is_planned_straight_away(self):
-        dish = Dish.objects.create(name="Pad thai", recipe_url="https://example.com/pad-thai")
+        dish = Dish.objects.create(household=home(), name="Pad thai", recipe_url="https://example.com/pad-thai")
         response = self.client.post(reverse("meals:recipe_link_new"), {"url": "https://www.example.com/pad-thai/", **self.plan})
         self.assertRedirects(response, "/week/2026-10-05/", fetch_redirect_response=False)
         self.assertEqual(PlannedMeal.objects.get().dish, dish)

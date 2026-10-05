@@ -45,6 +45,9 @@ urlpatterns = [
     path("settings/rule/<int:pk>/", views.rule_edit, name="rule"),
     path("settings/rule/<int:pk>/toggle/", views.rule_toggle, name="rule_toggle"),
     path("settings/household/", views.household_edit, name="household"),
+    path("settings/household/name/", views.household_rename, name="household_rename"),
+    path("settings/people/add/", views.person_invite, name="person_invite"),
+    path("settings/people/<int:pk>/remove/", views.person_remove, name="person_remove"),
     path("settings/staples/add/", views.staple_add, name="staple_add"),
     path("settings/weekly/add/", views.weekly_item_add, name="weekly_item_add"),
     path("settings/weekly/<int:pk>/delete/", views.weekly_item_delete, name="weekly_item_delete"),
@@ -55,4 +58,6 @@ urlpatterns = [
     path("week/<str:day>/copy/", views.menu_copy, name="menu_copy"),
     path("plan/<int:pk>/", views.menu_request, name="menu_request"),
     path("plan/<int:pk>/status/", views.menu_request_status, name="menu_request_status"),
+    path("manage/", views.manage, name="manage"),
+    path("manage/household/<int:pk>/", views.manage_household, name="manage_household"),
 ]

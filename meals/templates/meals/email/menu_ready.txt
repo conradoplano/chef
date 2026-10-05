@@ -3,7 +3,7 @@
 {% if request.kind == "create" %}{{ who }} created the menu for the week of {{ request.week|date:"j F" }}{% elif request.kind == "change" %}{{ who }} changed the menu for the week of {{ request.week|date:"j F" }}{% else %}{{ who }} replaced {{ request.replacing }} on the menu{% if request.details %} ("{{ request.details }}"){% endif %}{% endif %}:
 
 {% for m in meals %}- {{ m.date|date:"D j M" }}, {{ m.get_slot_display|lower }}: {% if m.leftovers %}leftover {{ m.dish.name|lower }}{% else %}{{ m.dish.name }}{% endif %}
-{% endfor %}{% if request.kind == "create" and request.summary %}
+{% endfor %}{% if request.kind != "replace" and request.summary %}
 {{ request.summary }}
 {% endif %}{% if url %}
 Menu and shopping list: {{ url }}

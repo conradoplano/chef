@@ -6,6 +6,41 @@
   <h2>Settings</h2>
   <p class="muted small">Your family, usual week, rules, what's always at home, weekly shopping and how menus are created. Everything here is taken into account when a menu is created.</p>
 
+  <section class="card" id="people">
+    <h3>👥 People</h3>
+    <p class="muted small">Everyone here sees and changes the same menus, shopping lists and recipes.</p>
+    <form method="post" action="{% url 'meals:household_rename' %}" class="add-rule">
+      {% csrf_token %}
+      {{ name_form.name }}
+      <button type="submit" class="ghost">Save name</button>
+    </form>
+    <ul class="plain-list people">
+      {% for person in people %}
+        <li class="line">
+          <span>
+            <strong>{{ person.name|default:person.email }}</strong>{% if person.pk == user.pk %} <span class="badge">You</span>{% endif %}
+            {% if person.name %}<br><span class="muted small">{{ person.email }}</span>{% endif %}
+          </span>
+          {% if people|length > 1 %}
+            <form method="post" action="{% url 'meals:person_remove' person.pk %}" class="inline"
+                  data-confirm="{% if person.pk == user.pk %}Leave this household? You'll be logged out.{% elif person.is_staff %}Remove {{ person }} from the household?{% else %}Remove {{ person }}? Their login is deleted.{% endif %}">
+              {% csrf_token %}<button type="submit" class="link small danger">{% if person.pk == user.pk %}Leave{% else %}Remove{% endif %}</button>
+            </form>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+    <form method="post" action="{% url 'meals:person_invite' %}" class="stack">
+      {% csrf_token %}
+      <div class="row">
+        <div class="field">{{ invite_form.email }}</div>
+        <div class="field">{{ invite_form.name }}</div>
+      </div>
+      <button type="submit">Add person</button>
+    </form>
+    <p class="muted small">They log in with their email address and get a code; there's no password.</p>
+  </section>
+
   <section class="card">
     <div class="line section-head">
       <h3>Family</h3>
@@ -135,13 +170,25 @@
     {% endif %}
   </section>
 
+  <section class="card" id="ai">
+    <h3>✨ AI</h3>
+    {% if ai.blocked %}<p class="small">{{ ai.blocked }}</p>{% endif %}
+    {% if household.ai_approved %}
+      <table class="kv small">
+        <tr><td class="muted">Used today</td><td>${{ ai.today|floatformat:2 }} of ${{ ai.limit|floatformat:2 }}</td></tr>
+        <tr><td class="muted">This month</td><td>${{ ai.month|floatformat:2 }}</td></tr>
+      </table>
+      <p class="muted small">Creating a menu costs about $0.10–0.20, reading a recipe a few cents.</p>
+    {% endif %}
+  </section>
+
   {% if user.is_staff %}
     <section class="card">
       <div class="line section-head">
         <h3>Admin</h3>
-        <a class="btn ghost small" href="{% url 'admin:index' %}">Open admin</a>
+        <a class="btn ghost small" href="{% url 'meals:manage' %}">Open admin</a>
       </div>
-      <p class="muted small">Users and who can log in, all data, and the AI's menu requests with their cost.</p>
+      <p class="muted small">Households, approving AI for new ones, what the AI costs and daily limits. All data is in the <a href="{% url 'admin:index' %}">database admin</a>.</p>
     </section>
   {% endif %}
 {% endblock %}

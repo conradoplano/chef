@@ -9,7 +9,8 @@ from django.utils import timezone
 from accounts.models import User
 
 from . import shopping
-from .models import Dish, ExtraItem, FamilyMember, Feedback, Household, PlannedMeal, Rule, ShoppingCheck
+from .models import Dish, ExtraItem, FamilyMember, Feedback, PlannedMeal, Rule, ShoppingCheck
+from .testing import home
 
 
 class WeekTests(TestCase):
@@ -34,7 +35,7 @@ class MenuTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(email="parent@example.com")
         self.client.force_login(self.user)
-        self.curry = Dish.objects.create(
+        self.curry = Dish.objects.create(household=home(), 
             name="Paneer curry", kind=Dish.Kind.VEGETARIAN, minutes=30, recipe_url="https://example.com/curry"
         )
 
@@ -45,9 +46,9 @@ class MenuTests(TestCase):
         return self.client.post(url, payload)
 
     def test_week_lists_meals_in_order_and_only_that_week(self):
-        PlannedMeal.objects.create(date=date(2026, 10, 3), slot="dinner", dish=self.curry)
-        PlannedMeal.objects.create(date=date(2026, 10, 3), slot="lunch", dish=self.curry, leftovers=True)
-        PlannedMeal.objects.create(date=date(2026, 10, 5), dish=Dish.objects.create(name="Next week pizza"))
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 3), slot="dinner", dish=self.curry)
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 3), slot="lunch", dish=self.curry, leftovers=True)
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 5), dish=Dish.objects.create(household=home(), name="Next week pizza"))
         response = self.client.get(reverse("meals:menu_of", args=["2026-09-28"]))
         content = response.content.decode()
         self.assertLess(content.index("Leftover paneer curry"), content.index("🌱 Paneer curry"))
@@ -83,7 +84,7 @@ class MenuTests(TestCase):
         self.assertContains(response, '<option value="Paneer curry">')
 
     def test_edit_meal_changes_dish(self):
-        meal = PlannedMeal.objects.create(date=date(2026, 9, 29), dish=self.curry)
+        meal = PlannedMeal.objects.create(household=home(), date=date(2026, 9, 29), dish=self.curry)
         response = self.client.get(reverse("meals:meal", args=[meal.pk]))
         self.assertContains(response, 'value="Paneer curry"')
         self._post(reverse("meals:meal", args=[meal.pk]), dish_name="Salmon pasta", kind="fish")
@@ -92,15 +93,15 @@ class MenuTests(TestCase):
         self.assertTrue(Dish.objects.filter(name="Paneer curry").exists())
 
     def test_remove_meal(self):
-        meal = PlannedMeal.objects.create(date=date(2026, 9, 29), dish=self.curry)
+        meal = PlannedMeal.objects.create(household=home(), date=date(2026, 9, 29), dish=self.curry)
         response = self.client.post(reverse("meals:meal", args=[meal.pk]), {"delete": "1"})
         self.assertRedirects(response, reverse("meals:menu_of", args=["2026-09-29"]))
         self.assertFalse(PlannedMeal.objects.exists())
 
     def test_removing_a_cooked_meal_offers_to_remove_its_leftovers(self):
-        cooked = PlannedMeal.objects.create(date=date(2026, 10, 3), dish=self.curry, servings=8)
-        later = PlannedMeal.objects.create(date=date(2026, 10, 4), slot="lunch", dish=self.curry, leftovers=True)
-        other_week = PlannedMeal.objects.create(date=date(2026, 10, 6), dish=self.curry, leftovers=True)
+        cooked = PlannedMeal.objects.create(household=home(), date=date(2026, 10, 3), dish=self.curry, servings=8)
+        later = PlannedMeal.objects.create(household=home(), date=date(2026, 10, 4), slot="lunch", dish=self.curry, leftovers=True)
+        other_week = PlannedMeal.objects.create(household=home(), date=date(2026, 10, 6), dish=self.curry, leftovers=True)
         page = self.client.get(reverse("meals:meal", args=[cooked.pk]))
         self.assertContains(page, "Also remove its leftovers (Sun lunch)")
         response = self.client.post(reverse("meals:meal", args=[cooked.pk]), {"delete": "1", "with_leftovers": "on"}, follow=True)
@@ -109,8 +110,8 @@ class MenuTests(TestCase):
         self.assertTrue(PlannedMeal.objects.filter(pk=other_week.pk).exists())
 
     def test_leftovers_stay_when_unticked(self):
-        cooked = PlannedMeal.objects.create(date=date(2026, 10, 3), dish=self.curry)
-        later = PlannedMeal.objects.create(date=date(2026, 10, 4), slot="lunch", dish=self.curry, leftovers=True)
+        cooked = PlannedMeal.objects.create(household=home(), date=date(2026, 10, 3), dish=self.curry)
+        later = PlannedMeal.objects.create(household=home(), date=date(2026, 10, 4), slot="lunch", dish=self.curry, leftovers=True)
         self.client.post(reverse("meals:meal", args=[cooked.pk]), {"delete": "1"})
         self.assertTrue(PlannedMeal.objects.filter(pk=later.pk).exists())
         self.assertNotContains(self.client.get(reverse("meals:meal", args=[later.pk])), "Also remove its leftovers")
@@ -175,7 +176,7 @@ class FamilyTests(TestCase):
         self.assertFalse(Rule.objects.exists())
 
     def test_toggle_requires_post(self):
-        rule = Rule.objects.create(text="Pizza on Sunday")
+        rule = Rule.objects.create(household=home(), text="Pizza on Sunday")
         self.assertEqual(self.client.get(reverse("meals:rule_toggle", args=[rule.pk])).status_code, 405)
 
     def test_household_edit(self):
@@ -184,7 +185,7 @@ class FamilyTests(TestCase):
             "recipe_sites": "bbcgoodfood.com", "other_sites": "rarely",
         })
         self.assertRedirects(response, reverse("meals:family"))
-        household = Household.load()
+        household = home()
         self.assertEqual((household.weekday_minutes, household.priority), (30, "waste"))
         page = self.client.get(reverse("meals:family"))
         self.assertContains(page, "30 min")
@@ -193,7 +194,7 @@ class FamilyTests(TestCase):
         self.assertContains(page, "Rarely – about one recipe a week")
 
     def test_household_form_leaves_usual_week_alone(self):
-        household = Household.load()
+        household = home()
         household.usual_week = {"0": {"dinner": {"on": True, "eaters": []}}}
         household.save()
         response = self.client.get(reverse("meals:household"))
@@ -226,14 +227,14 @@ class MenuCardTests(TestCase):
         self.user = User.objects.create_user(email="parent@example.com")
         self.client.force_login(self.user)
         self.today = timezone.localdate()
-        self.dish = Dish.objects.create(name="Shepherd's pie", kind="meat", minutes=75,
+        self.dish = Dish.objects.create(household=home(), name="Shepherd's pie", kind="meat", minutes=75,
                                         recipe_url="https://www.bbcgoodfood.com/recipes/pie")
 
     def _menu(self, day):
         return self.client.get(reverse("meals:menu_of", args=[day.isoformat()]))
 
     def test_card_shows_source_edit_and_add_separately(self):
-        meal = PlannedMeal.objects.create(date=self.today, dish=self.dish)
+        meal = PlannedMeal.objects.create(household=home(), date=self.today, dish=self.dish)
         response = self._menu(self.today)
         self.assertContains(response, "BBC Good Food ↗")
         self.assertContains(response, "⏱ 75 min")
@@ -241,7 +242,7 @@ class MenuCardTests(TestCase):
         self.assertContains(response, "+ Add", count=7)
 
     def test_card_top_links_to_recipe(self):
-        PlannedMeal.objects.create(date=self.today, dish=self.dish)
+        PlannedMeal.objects.create(household=home(), date=self.today, dish=self.dish)
         response = self._menu(self.today)
         self.assertContains(
             response,
@@ -251,11 +252,11 @@ class MenuCardTests(TestCase):
         )
 
     def test_no_card_link_without_recipe(self):
-        PlannedMeal.objects.create(date=self.today, dish=Dish.objects.create(name="Pizza"))
+        PlannedMeal.objects.create(household=home(), date=self.today, dish=Dish.objects.create(household=home(), name="Pizza"))
         self.assertNotContains(self._menu(self.today), "meal-link")
 
     def test_leftovers_show_no_cooking_instead_of_time(self):
-        PlannedMeal.objects.create(date=self.today, slot="lunch", dish=self.dish, leftovers=True)
+        PlannedMeal.objects.create(household=home(), date=self.today, slot="lunch", dish=self.dish, leftovers=True)
         response = self._menu(self.today)
         self.assertContains(response, "Leftovers – no cooking needed")
         self.assertNotContains(response, "75 min")
@@ -268,9 +269,9 @@ class MenuCardTests(TestCase):
         )
 
     def test_feedback_button_only_for_eaten_cooked_meals(self):
-        past = PlannedMeal.objects.create(date=self.today - timedelta(days=1), dish=self.dish)
-        PlannedMeal.objects.create(date=self.today - timedelta(days=1), slot="lunch", dish=self.dish, leftovers=True)
-        future = PlannedMeal.objects.create(date=self.today + timedelta(days=1), dish=self.dish)
+        past = PlannedMeal.objects.create(household=home(), date=self.today - timedelta(days=1), dish=self.dish)
+        PlannedMeal.objects.create(household=home(), date=self.today - timedelta(days=1), slot="lunch", dish=self.dish, leftovers=True)
+        future = PlannedMeal.objects.create(household=home(), date=self.today + timedelta(days=1), dish=self.dish)
         start = self.today - timedelta(days=self.today.weekday())
         content = "".join(self._menu(d).content.decode() for d in {start, past.date, future.date})
         self.assertIn(reverse("meals:feedback", args=[past.pk]), content)
@@ -278,7 +279,7 @@ class MenuCardTests(TestCase):
         self.assertEqual(content.count("/feedback/"), content.count(reverse("meals:feedback", args=[past.pk])))
 
     def test_give_edit_and_remove_feedback(self):
-        meal = PlannedMeal.objects.create(date=self.today, dish=self.dish)
+        meal = PlannedMeal.objects.create(household=home(), date=self.today, dish=self.dish)
         url = reverse("meals:feedback", args=[meal.pk])
         response = self.client.post(url, {"kids": "loved", "parents": "liked", "reaction": "Leo: tummy ache", "notes": ""})
         self.assertRedirects(response, reverse("meals:menu_of", args=[self.today.isoformat()]))
@@ -302,7 +303,7 @@ class MenuCardTests(TestCase):
         self.assertFalse(Feedback.objects.exists())
 
     def test_feedback_kept_with_meal_and_removed_with_it(self):
-        meal = PlannedMeal.objects.create(date=self.today, dish=self.dish)
+        meal = PlannedMeal.objects.create(household=home(), date=self.today, dish=self.dish)
         Feedback.objects.create(meal=meal, kids="disliked")
         self.client.post(reverse("meals:meal", args=[meal.pk]), {"delete": "1"})
         self.assertFalse(Feedback.objects.exists())
@@ -313,10 +314,10 @@ class HomeTests(TestCase):
         self.user = User.objects.create_user(email="parent@example.com", name="Pat Parent")
         self.client.force_login(self.user)
         self.today = timezone.localdate()
-        self.dish = Dish.objects.create(name="Salmon pasta", kind="fish", minutes=20)
+        self.dish = Dish.objects.create(household=home(), name="Salmon pasta", kind="fish", minutes=20)
 
     def test_shows_todays_meals_with_cards(self):
-        meal = PlannedMeal.objects.create(date=self.today, dish=self.dish)
+        meal = PlannedMeal.objects.create(household=home(), date=self.today, dish=self.dish)
         response = self.client.get(reverse("meals:home"))
         self.assertContains(response, ", Pat")
         self.assertContains(response, "🐟 Salmon pasta")
@@ -332,14 +333,14 @@ class HomeTests(TestCase):
         self.assertContains(response, reverse("meals:menu"))
 
     def test_week_cards_have_no_return_link(self):
-        meal = PlannedMeal.objects.create(date=self.today, dish=self.dish)
+        meal = PlannedMeal.objects.create(household=home(), date=self.today, dish=self.dish)
         response = self.client.get(reverse("meals:menu"))
         self.assertContains(response, f'href="{reverse("meals:meal", args=[meal.pk])}" ')
         self.assertNotContains(response, f'{reverse("meals:meal", args=[meal.pk])}?next=')
         self.assertNotContains(response, f'{reverse("meals:feedback", args=[meal.pk])}?next=')
 
     def test_edit_and_feedback_return_home(self):
-        meal = PlannedMeal.objects.create(date=self.today, dish=self.dish)
+        meal = PlannedMeal.objects.create(household=home(), date=self.today, dish=self.dish)
         response = self.client.post(reverse("meals:feedback", args=[meal.pk]) + "?next=/", {"kids": "loved"})
         self.assertRedirects(response, "/")
         response = self.client.post(reverse("meals:meal", args=[meal.pk]) + "?next=/", {
@@ -348,7 +349,7 @@ class HomeTests(TestCase):
         self.assertRedirects(response, "/")
 
     def test_unsafe_next_is_ignored(self):
-        meal = PlannedMeal.objects.create(date=self.today, dish=self.dish)
+        meal = PlannedMeal.objects.create(household=home(), date=self.today, dish=self.dish)
         response = self.client.post(reverse("meals:feedback", args=[meal.pk]) + "?next=https://evil.example/", {"notes": "Fine"})
         self.assertRedirects(response, reverse("meals:menu_of", args=[self.today.isoformat()]))
 
@@ -360,24 +361,24 @@ class ShoppingListTests(TestCase):
         self.user = User.objects.create_user(email="parent@example.com", name="Pat Parent")
         self.client.force_login(self.user)
         self.week = date(2026, 9, 28)
-        self.curry = Dish.objects.create(name="Paneer curry", recipe_url="https://www.bbcgoodfood.com/curry")
+        self.curry = Dish.objects.create(household=home(), name="Paneer curry", recipe_url="https://www.bbcgoodfood.com/curry")
         self.curry.ingredients.create(name="Onions", quantity=2, unit="pcs", category="vegetables")
         self.curry.ingredients.create(
             name="Spinach", quantity=300, unit="g", category="vegetables", note="fresh or frozen"
         )
         self.curry.ingredients.create(name="Garlic", quantity=None, category="vegetables")
         self.curry.ingredients.create(name="Rice", quantity=250, unit="g", category="pantry")
-        self.pie = Dish.objects.create(name="Shepherd's pie")
+        self.pie = Dish.objects.create(household=home(), name="Shepherd's pie")
         self.pie.ingredients.create(name="onion", quantity=1, unit="pcs", category="vegetables")
         self.pie.ingredients.create(name="Potatoes", quantity=Decimal("1.2"), unit="kg", category="vegetables")
         self.pie.ingredients.create(name="Lamb mince", quantity=500, unit="g", category="meat")
         self.pie.ingredients.create(name="Garlic", quantity=2, unit="clove", category="other")
-        PlannedMeal.objects.create(date=date(2026, 9, 29), dish=self.curry)
-        PlannedMeal.objects.create(date=date(2026, 10, 3), dish=self.pie)
-        PlannedMeal.objects.create(date=date(2026, 10, 4), slot="lunch", dish=self.pie, leftovers=True)
+        PlannedMeal.objects.create(household=home(), date=date(2026, 9, 29), dish=self.curry)
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 3), dish=self.pie)
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 4), slot="lunch", dish=self.pie, leftovers=True)
 
     def _build(self):
-        sections, at_home, missing = shopping.build(self.week)
+        sections, at_home, missing = shopping.build(home(), self.week)
         return {i.name: i for s in sections for i in s.items}, sections, at_home, missing
 
     def test_merges_ingredients_across_dishes(self):
@@ -404,11 +405,11 @@ class ShoppingListTests(TestCase):
         self.assertEqual(len(items["Lamb mince"].uses), 1)
 
     def test_other_weeks_are_separate(self):
-        sections, *_ = shopping.build(date(2026, 10, 5))
+        sections, *_ = shopping.build(home(), date(2026, 10, 5))
         self.assertEqual(sections, [])
 
     def test_pantry_staples_go_to_check_at_home(self):
-        household = Household.load()
+        household = home()
         household.pantry = "rice, olive oil\nGarlic"
         household.save()
         items, _, at_home, _ = self._build()
@@ -418,14 +419,14 @@ class ShoppingListTests(TestCase):
     def test_pantry_staples_match_longer_names(self):
         self.curry.ingredients.create(name="Extra virgin olive oil", quantity=2, unit="tbsp", category="pantry")
         self.curry.ingredients.create(name="Tin foil", category="other")
-        household = Household.load()
+        household = home()
         household.pantry = "olive oil, oil"
         household.save()
         _, _, at_home, _ = self._build()
         self.assertEqual([i.name for i in at_home], ["Extra virgin olive oil"])
 
     def test_meals_without_ingredients_are_reported(self):
-        PlannedMeal.objects.create(date=date(2026, 10, 2), dish=Dish.objects.create(name="Flatbreads"))
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 2), dish=Dish.objects.create(household=home(), name="Flatbreads"))
         *_, missing = self._build()
         self.assertEqual([m.dish.name for m in missing], ["Flatbreads"])
         response = self.client.get(reverse("meals:shopping_of", args=["2026-09-28"]))
@@ -453,7 +454,7 @@ class ShoppingListTests(TestCase):
         response = self.client.post(url, {"key": "onion", "checked": "1"}, headers={"X-Requested-With": "fetch"})
         self.assertEqual(response.json()["checked"], {"onion": "Pat"})
         # Someone else sees it on their next poll.
-        other = User.objects.create_user(email="other@example.com")
+        other = User.objects.create_user(email="other@example.com", household=self.user.household)
         self.client.force_login(other)
         state = self.client.get(reverse("meals:shopping_state", args=["2026-09-28"])).json()
         self.assertEqual(state["checked"], {"onion": "Pat"})
@@ -489,10 +490,10 @@ class ShoppingListTests(TestCase):
         )
         response = self.client.post(reverse("meals:extra_delete", args=[extra.pk]))
         self.assertRedirects(response, reverse("meals:shopping_of", args=["2026-09-28"]) + f"?removed={extra.pk}")
-        self.assertNotIn("Milk", [i.name for s in shopping.build(self.week)[0] for i in s.items])
+        self.assertNotIn("Milk", [i.name for s in shopping.build(home(), self.week)[0] for i in s.items])
 
     def test_undo_remove_extra_item(self):
-        extra = ExtraItem.objects.create(week=self.week, name="Milk", category="dairy")
+        extra = ExtraItem.objects.create(household=home(), week=self.week, name="Milk", category="dairy")
         toggle = reverse("meals:shopping_toggle", args=["2026-09-28"])
         self.client.post(toggle, {"key": f"extra-{extra.pk}", "checked": "1"})
         response = self.client.post(reverse("meals:extra_delete", args=[extra.pk]), follow=True)
@@ -507,17 +508,17 @@ class ShoppingListTests(TestCase):
         self.assertContains(response, "✓ Pat")
 
     def test_removed_items_are_purged_after_a_day(self):
-        old = ExtraItem.objects.create(
+        old = ExtraItem.objects.create(household=home(), 
             week=self.week, name="Old", removed_at=timezone.now() - timedelta(days=2)
         )
-        ShoppingCheck.objects.create(week=self.week, key=f"extra-{old.pk}")
-        extra = ExtraItem.objects.create(week=self.week, name="Bread")
+        ShoppingCheck.objects.create(household=home(), week=self.week, key=f"extra-{old.pk}")
+        extra = ExtraItem.objects.create(household=home(), week=self.week, name="Bread")
         self.client.post(reverse("meals:extra_delete", args=[extra.pk]))
         self.assertEqual(list(ExtraItem.objects.values_list("name", flat=True)), ["Bread"])
         self.assertFalse(ShoppingCheck.objects.exists())
 
     def test_removed_banner_only_for_removed_items(self):
-        extra = ExtraItem.objects.create(week=self.week, name="Eggs")
+        extra = ExtraItem.objects.create(household=home(), week=self.week, name="Eggs")
         response = self.client.get(reverse("meals:shopping_of", args=["2026-09-28"]) + f"?removed={extra.pk}")
         self.assertNotContains(response, "Removed <strong>")
         response = self.client.get(reverse("meals:shopping_of", args=["2026-09-28"]) + "?removed=abc")
@@ -554,7 +555,7 @@ class QuickFeedbackTests(TestCase):
     def setUp(self):
         self.client.force_login(User.objects.create_user(email="parent@example.com"))
         self.today = timezone.localdate()
-        self.meal = PlannedMeal.objects.create(date=self.today, dish=Dish.objects.create(name="Tacos"))
+        self.meal = PlannedMeal.objects.create(household=home(), date=self.today, dish=Dish.objects.create(household=home(), name="Tacos"))
         self.url = reverse("meals:feedback_quick", args=[self.meal.pk])
 
     def _menu(self):
@@ -609,12 +610,12 @@ class HomeRestOfWeekTests(TestCase):
 
     def setUp(self):
         self.client.force_login(User.objects.create_user(email="parent@example.com"))
-        dish = lambda name: Dish.objects.create(name=name)
-        PlannedMeal.objects.create(date=date(2026, 9, 29), dish=dish("Yesterday soup"))
-        PlannedMeal.objects.create(date=date(2026, 9, 30), dish=dish("Today tofu"))
-        PlannedMeal.objects.create(date=date(2026, 10, 1), dish=dish("Thursday salmon"))
-        PlannedMeal.objects.create(date=date(2026, 10, 4), slot="lunch", dish=dish("Sunday pie"), leftovers=True)
-        PlannedMeal.objects.create(date=date(2026, 10, 5), dish=dish("Next week pizza"))
+        dish = lambda name: Dish.objects.create(household=home(), name=name)
+        PlannedMeal.objects.create(household=home(), date=date(2026, 9, 29), dish=dish("Yesterday soup"))
+        PlannedMeal.objects.create(household=home(), date=date(2026, 9, 30), dish=dish("Today tofu"))
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 1), dish=dish("Thursday salmon"))
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 4), slot="lunch", dish=dish("Sunday pie"), leftovers=True)
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 5), dish=dish("Next week pizza"))
 
     def _home(self, today):
         with mock.patch("django.utils.timezone.localdate", return_value=today):
@@ -699,12 +700,12 @@ class SwipeTests(TestCase):
 class CopyWeekTests(TestCase):
     def setUp(self):
         self.client.force_login(User.objects.create_user(email="parent@example.com"))
-        self.ana = FamilyMember.objects.create(name="Ana")
-        self.curry, self.pie = Dish.objects.create(name="Curry"), Dish.objects.create(name="Pie")
-        monday = PlannedMeal.objects.create(date=date(2026, 9, 21), dish=self.curry, servings=3, note="Mild")
+        self.ana = FamilyMember.objects.create(household=home(), name="Ana")
+        self.curry, self.pie = Dish.objects.create(household=home(), name="Curry"), Dish.objects.create(household=home(), name="Pie")
+        monday = PlannedMeal.objects.create(household=home(), date=date(2026, 9, 21), dish=self.curry, servings=3, note="Mild")
         monday.eaters.set([self.ana])
-        PlannedMeal.objects.create(date=date(2026, 9, 26), dish=self.pie)
-        PlannedMeal.objects.create(date=date(2026, 9, 27), slot="lunch", dish=self.pie, leftovers=True)
+        PlannedMeal.objects.create(household=home(), date=date(2026, 9, 26), dish=self.pie)
+        PlannedMeal.objects.create(household=home(), date=date(2026, 9, 27), slot="lunch", dish=self.pie, leftovers=True)
 
     def test_lists_weeks_with_meals(self):
         response = self.client.get(reverse("meals:menu_copy", args=["2026-10-05"]))
@@ -713,7 +714,7 @@ class CopyWeekTests(TestCase):
         self.assertContains(response, "Copy 3 meals")
 
     def test_copies_meals_to_the_same_weekdays(self):
-        PlannedMeal.objects.create(date=date(2026, 10, 10), dish=Dish.objects.create(name="Pizza"))  # Saturday taken
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 10), dish=Dish.objects.create(household=home(), name="Pizza"))  # Saturday taken
         response = self.client.post(reverse("meals:menu_copy", args=["2026-10-07"]), {"source": "2026-09-21"}, follow=True)
         self.assertContains(response, "Copied 2 meals from the week of 21 Sep (1 skipped – already planned).")
         monday = PlannedMeal.objects.get(date=date(2026, 10, 5))
@@ -731,20 +732,20 @@ class RecipesFromSourcesTests(TestCase):
         self.client.force_login(User.objects.create_user(email="parent@example.com"))
         for name, url in [("A", "https://www.bbcgoodfood.com/a"), ("B", "https://tollbit.bbcgoodfood.com/b"),
                           ("C", "https://other.example/c"), ("D", "")]:
-            PlannedMeal.objects.create(date=date(2026, 10, 5), dish=Dish.objects.create(name=name, recipe_url=url))
-        PlannedMeal.objects.create(date=date(2026, 10, 6), dish=Dish.objects.get(name="C"), leftovers=True)
+            PlannedMeal.objects.create(household=home(), date=date(2026, 10, 5), dish=Dish.objects.create(household=home(), name=name, recipe_url=url))
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 6), dish=Dish.objects.get(name="C"), leftovers=True)
 
     def _page(self):
         return self.client.get(reverse("meals:menu_of", args=["2026-10-05"]))
 
     def test_counts_cooked_meals_from_the_websites(self):
-        household = Household.load()
+        household = home()
         household.recipe_sites = "bbcgoodfood.com\nJamie Oliver"
         household.save()
         self.assertContains(self._page(), "2 of 3 recipes from your recipe websites")
 
     def test_hidden_without_websites(self):
-        household = Household.load()
+        household = home()
         household.recipe_sites = "Jamie Oliver"
         household.save()
         self.assertNotContains(self._page(), "from your recipe websites")
@@ -754,10 +755,10 @@ class RecipeBinderTests(TestCase):
     def setUp(self):
         self.client.force_login(User.objects.create_user(email="parent@example.com"))
         self.today = timezone.localdate()
-        self.fav = Dish.objects.create(name="Lasagne", status="favourite", minutes=60)
-        self.new = Dish.objects.create(name="Shakshuka", status="try", recipe_url="https://www.bbcgoodfood.com/shakshuka")
-        self.plain = Dish.objects.create(name="Fish sticks")
-        PlannedMeal.objects.create(date=self.today - timedelta(days=3), dish=self.fav)
+        self.fav = Dish.objects.create(household=home(), name="Lasagne", status="favourite", minutes=60)
+        self.new = Dish.objects.create(household=home(), name="Shakshuka", status="try", recipe_url="https://www.bbcgoodfood.com/shakshuka")
+        self.plain = Dish.objects.create(household=home(), name="Fish sticks")
+        PlannedMeal.objects.create(household=home(), date=self.today - timedelta(days=3), dish=self.fav)
 
     def test_filters_and_search(self):
         response = self.client.get(reverse("meals:recipes"))
@@ -788,7 +789,7 @@ class RecipeBinderTests(TestCase):
         self.assertContains(response, "already a recipe called")
 
     def test_recipe_page_and_add_to_menu(self):
-        ana = FamilyMember.objects.create(name="Ana")
+        ana = FamilyMember.objects.create(household=home(), name="Ana")
         response = self.client.get(reverse("meals:recipe", args=[self.fav.pk]))
         self.assertContains(response, "Lasagne")
         self.assertEqual(len(response.context["history"]), 1)
@@ -803,7 +804,7 @@ class RecipeBinderTests(TestCase):
         self.client.post(url, {"status": "try"})
         self.plain.refresh_from_db()
         self.assertEqual(self.plain.status, "try")
-        meal = PlannedMeal.objects.create(date=self.today, dish=self.plain)
+        meal = PlannedMeal.objects.create(household=home(), date=self.today, dish=self.plain)
         page = self.client.get(reverse("meals:menu_of", args=[self.today.isoformat()]))
         self.assertContains(page, 'aria-label="Save as a favourite">☆</button>')
         response = self.client.post(url + "?next=/", {"toggle": "favourite", "anchor": f"meal-{meal.pk}"})
@@ -815,7 +816,7 @@ class RecipeBinderTests(TestCase):
         self.assertEqual(self.plain.status, "")
 
     def test_liked_recipe_to_try_becomes_a_favourite(self):
-        meal = PlannedMeal.objects.create(date=self.today, dish=self.new)
+        meal = PlannedMeal.objects.create(household=home(), date=self.today, dish=self.new)
         response = self.client.post(reverse("meals:feedback_quick", args=[meal.pk]), {"rating": "liked"},
                                     headers={"X-Requested-With": "fetch"})
         self.assertEqual(response.json(), {"rating": "liked", "favourite": True})
@@ -823,7 +824,7 @@ class RecipeBinderTests(TestCase):
         self.assertEqual(self.new.status, "favourite")
 
     def test_disliked_or_split_feedback_keeps_it_to_try(self):
-        meal = PlannedMeal.objects.create(date=self.today, dish=self.new)
+        meal = PlannedMeal.objects.create(household=home(), date=self.today, dish=self.new)
         self.client.post(reverse("meals:feedback", args=[meal.pk]), {"kids": "loved", "parents": "disliked"})
         self.client.post(reverse("meals:feedback_quick", args=[meal.pk]), {"rating": "disliked"})
         self.new.refresh_from_db()
@@ -840,7 +841,7 @@ class RecipeBinderTests(TestCase):
         from . import planner
         from .models import MenuRequest
 
-        request = MenuRequest.objects.create(week=date(2026, 10, 5), slots=[{"date": "2026-10-05", "slot": "dinner", "eaters": []}])
+        request = MenuRequest.objects.create(household=home(), week=date(2026, 10, 5), slots=[{"date": "2026-10-05", "slot": "dinner", "eaters": []}])
         prompt = planner.build_prompt(request)
         self.assertIn("## Recipe binder: favourites\n- Lasagne (other, 60 min)", prompt)
         self.assertIn("## Recipe binder: want to try\n- Shakshuka (other, <https://www.bbcgoodfood.com/shakshuka>)", prompt)
@@ -862,7 +863,9 @@ class SettingsPageTests(TestCase):
 
     def test_admin_section_for_admins(self):
         self.client.force_login(User.objects.create_user(email="admin@example.com", is_staff=True))
-        self.assertContains(self.client.get(reverse("meals:family")), 'href="/admin/">Open admin</a>')
+        page = self.client.get(reverse("meals:family"))
+        self.assertContains(page, 'href="/manage/">Open admin</a>')
+        self.assertContains(page, 'href="/admin/">database admin</a>')
 
     def test_old_family_address_redirects(self):
         self.client.force_login(User.objects.create_user(email="parent@example.com"))
@@ -875,11 +878,11 @@ class StapleTests(TestCase):
 
     def setUp(self):
         self.client.force_login(User.objects.create_user(email="parent@example.com"))
-        dish = Dish.objects.create(name="Risotto")
+        dish = Dish.objects.create(household=home(), name="Risotto")
         for name, category in [("Arborio rice", "pantry"), ("Stock", "pantry"), ("Mushrooms", "vegetables"),
                                ("Frozen peas", "frozen"), ("Soy sauce", "speciality"), ("Extra virgin olive oil", "pantry")]:
             dish.ingredients.create(name=name, quantity=1, unit="pcs", category=category)
-        PlannedMeal.objects.create(date=date(2026, 10, 5), dish=dish)
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 5), dish=dish)
         self.url = reverse("meals:shopping_of", args=["2026-10-05"])
 
     def _post(self, view, **data):
@@ -901,18 +904,18 @@ class StapleTests(TestCase):
         self.assertContains(response, "❄️ Frozen peas is on the freezer list now.")
         self.assertContains(response, "✕ Remove from pantry", count=1)
         self.assertContains(response, "✕ Remove from freezer", count=1)
-        household = Household.load()
+        household = home()
         self.assertEqual((household.pantry, household.freezer), ("Stock", "Frozen peas"))
 
     def test_remove_uses_the_staple_that_matched(self):
-        household = Household.load()
+        household = home()
         household.pantry = "olive oil, stock"
         household.save()
         page = self.client.get(self.url)
         # "Extra virgin olive oil" is at home because of the staple "olive oil": removing removes that staple.
         self.assertContains(page, 'name="name" value="olive oil"')
         self._post("staple_remove", name="olive oil", list="pantry")
-        self.assertEqual(Household.load().pantry, "stock")  # also tidied into one per line
+        self.assertEqual(home().pantry, "stock")  # also tidied into one per line
 
     def test_settings_section(self):
         self.client.post(reverse("meals:staple_add"), {"name": "  olive   oil ", "list": "pantry"})
@@ -920,7 +923,7 @@ class StapleTests(TestCase):
         response = self.client.post(reverse("meals:staple_add"), {"name": "egg", "list": "pantry"}, follow=True)
         self.assertContains(response, "egg is already on the pantry list.")
         self.client.post(reverse("meals:staple_add"), {"name": "Ice cream", "list": "freezer"})
-        household = Household.load()
+        household = home()
         self.assertEqual((household.pantry, household.freezer), ("Eggs\nolive oil", "Ice cream"))
         page = self.client.get(reverse("meals:family"))
         self.assertContains(page, "🏠 Always at home")
@@ -928,7 +931,7 @@ class StapleTests(TestCase):
         self.assertContains(page, "<h4>❄️ Freezer</h4>")
         self.assertContains(page, "<span>Ice cream</span>")
         self.client.post(reverse("meals:staple_remove"), {"name": "Eggs", "list": "pantry"})
-        self.assertEqual(Household.load().pantry, "olive oil")
+        self.assertEqual(home().pantry, "olive oil")
 
     def test_buttons_are_on_their_own_line(self):
         page = self.client.get(self.url).content.decode()
@@ -942,10 +945,10 @@ class StapleTests(TestCase):
         dish = Dish.objects.get(name="Risotto")
         dish.ingredients.create(name="Peppers", quantity=2, unit="pcs", category="vegetables")
         dish.ingredients.create(name="Garlic", quantity=2, unit="clove", category="vegetables")
-        household = Household.load()
+        household = home()
         household.pantry = "pepper\ngarlic\nolive oil"
         household.save()
-        sections, at_home, _ = shopping.build(date(2026, 10, 5))
+        sections, at_home, _ = shopping.build(home(), date(2026, 10, 5))
         # Fresh food only by its exact name: garlic yes, but the spice doesn't take fresh peppers off the list.
         # In staple sections matching stays loose ("olive oil" covers "Extra virgin olive oil").
         self.assertEqual([i.name for i in at_home], ["Extra virgin olive oil", "Garlic"])
@@ -953,28 +956,28 @@ class StapleTests(TestCase):
 
     def test_unknown_list_falls_back_to_the_pantry(self):
         self.client.post(reverse("meals:staple_add"), {"name": "Salt", "list": "garage"})
-        self.assertEqual(Household.load().pantry, "Salt")
+        self.assertEqual(home().pantry, "Salt")
 
     def test_menu_creation_form_has_no_staples(self):
         page = self.client.get(reverse("meals:household"))
         self.assertContains(page, "<h2>Menu creation</h2>")
         self.assertNotContains(page, 'name="pantry"')
         self.assertNotContains(page, 'name="freezer"')
-        household = Household.load()
+        household = home()
         household.pantry, household.freezer = "salt", "peas"
         household.save()
         self.client.post(reverse("meals:household"), {"priority": "balanced", "other_sites": "sometimes"})
-        household = Household.load()
+        household = home()
         self.assertEqual((household.pantry, household.freezer), ("salt", "peas"))
 
     def test_freezer_goes_into_the_ai_prompt(self):
         from . import planner
         from .models import MenuRequest
 
-        household = Household.load()
+        household = home()
         household.freezer = "fish sticks\npeas"
         household.save()
-        request = MenuRequest.objects.create(week=date(2026, 10, 5), slots=[{"date": "2026-10-05", "slot": "dinner", "eaters": []}])
+        request = MenuRequest.objects.create(household=home(), week=date(2026, 10, 5), slots=[{"date": "2026-10-05", "slot": "dinner", "eaters": []}])
         self.assertIn("- Usually in the freezer: fish sticks\npeas", planner.build_prompt(request))
 
     def test_unsafe_next_is_ignored(self):

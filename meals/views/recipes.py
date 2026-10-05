@@ -18,10 +18,11 @@ from django.utils import timezone
 from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
-from .. import photos, planner, recipe_import
+from .. import budget, photos, recipe_import
 from ..forms import UNITS, AddToMenuForm, IngredientForm, RecipeForm
 from ..models import Dish, Feedback, Ingredient, PlannedMeal, RecipeImport, RecipePhoto
 from .common import parse_date, parse_plan, plan_dish, safe_next
+from .menu import ingredient_names
 
 FILTERS = [
     ("favourites", "★ Favourites", Q(status=Dish.Status.FAVOURITE)),
@@ -52,14 +53,15 @@ def recipes(request):
     if show not in {key for key, _, _ in FILTERS}:
         show = "favourites"
     query = " ".join(request.GET.get("q", "").split())
-    dishes = Dish.objects.filter(dict((k, f) for k, _, f in FILTERS)[show])
+    household_dishes = Dish.objects.filter(household=request.household)
+    dishes = household_dishes.filter(dict((k, f) for k, _, f in FILTERS)[show])
     if query:
         dishes = dishes.filter(Q(name__icontains=query) | Q(notes__icontains=query) | Q(ingredients__name__icontains=query)).distinct()
     order = "-saved_at" if show == "try" else "name"
-    counts = {key: Dish.objects.filter(f).count() for key, _, f in FILTERS}
+    counts = {key: household_dishes.filter(f).count() for key, _, f in FILTERS}
     recipe_import.expire_stale()
     return render(request, "meals/recipes.html", {
-        "imports": unsaved_imports(),
+        "imports": unsaved_imports(request.household),
         "dishes": with_history(dishes.order_by(order, "name")),
         "filters": [(key, label, counts[key]) for key, label, _ in FILTERS],
         "show": show,
@@ -69,7 +71,7 @@ def recipes(request):
 
 @login_required
 def recipe(request, pk):
-    dish = get_object_or_404(Dish, pk=pk)
+    get_object_or_404(Dish, pk=pk, household=request.household)
     [dish] = with_history(Dish.objects.filter(pk=pk))
     form = AddToMenuForm(request.POST or None, initial={"date": timezone.localdate()})
     if request.method == "POST" and form.is_valid():
@@ -93,7 +95,7 @@ def recipe(request, pk):
 
 @login_required
 def recipe_edit(request, pk=None):
-    dish = get_object_or_404(Dish, pk=pk) if pk else None
+    dish = get_object_or_404(Dish, pk=pk, household=request.household) if pk else None
     if request.method == "POST" and dish and "delete" in request.POST:
         if dish.planned.exists():
             dish.set_status(Dish.Status.NONE)
@@ -103,7 +105,7 @@ def recipe_edit(request, pk=None):
             messages.success(request, f"Deleted {dish}.")
         return redirect("meals:recipes")
     initial = {} if dish else {"status": Dish.Status.TRY, "name": request.GET.get("name", "")}
-    form = RecipeForm(request.POST or None, instance=dish, initial=initial)
+    form = RecipeForm(request.POST or None, instance=dish, initial=initial, household=request.household)
     if request.method == "POST" and form.is_valid():
         is_new = dish is None
         status_before = dish.status if dish else ""
@@ -132,7 +134,7 @@ def recipe_edit(request, pk=None):
 @require_POST
 def recipe_status(request, pk):
     """Sets the binder status; with toggle=favourite, stars or unstars (from the meal cards)."""
-    dish = get_object_or_404(Dish, pk=pk)
+    dish = get_object_or_404(Dish, pk=pk, household=request.household)
     if request.POST.get("toggle") == "favourite":
         status = Dish.Status.NONE if dish.status == Dish.Status.FAVOURITE else Dish.Status.FAVOURITE
     else:
@@ -169,7 +171,7 @@ def save_photos(request, dish=None, job=None):
         return [], errors
     saved = []
     for image in processed:
-        photo = RecipePhoto(dish=dish, recipe_import=job, uploaded_by=request.user)
+        photo = RecipePhoto(household=request.household, dish=dish, recipe_import=job, uploaded_by=request.user)
         photo.image.save(image.name, image, save=True)
         saved.append(photo)
     return saved, []
@@ -192,7 +194,7 @@ def recipe_add(request):
     """Three ways to add a recipe: from a link, from photos, or typed in."""
     plan = parse_plan(request.GET.get("plan"))
     return render(request, "meals/recipe_add.html", {
-        "ai_enabled": planner.enabled(),
+        "ai_blocked": budget.blocked(request.household),
         "url": shared_url(request),
         "plan": plan and f"{plan[0].isoformat()}:{plan[1]}",
         "plan_day": plan and plan[0],
@@ -206,7 +208,7 @@ def start_import(request, **fields):
     plan = parse_plan(request.POST.get("plan"))
     if plan:
         fields.update(plan_date=plan[0], plan_slot=plan[1], plan_next=safe_next(request)[:300])
-    return RecipeImport.objects.create(created_by=request.user, **fields)
+    return RecipeImport.objects.create(household=request.household, created_by=request.user, **fields)
 
 
 def back_to_add(request):
@@ -232,7 +234,10 @@ def recipe_link_new(request):
     except ValidationError:
         messages.error(request, "That doesn't look like a web address.")
         return back_to_add(request)
-    known = next((d for d in Dish.objects.exclude(recipe_url="") if same_page(d.recipe_url, url)), None)
+    known = next(
+        (d for d in Dish.objects.filter(household=request.household).exclude(recipe_url="") if same_page(d.recipe_url, url)),
+        None,
+    )
     plan = parse_plan(request.POST.get("plan"))
     if known and plan:
         meal = plan_dish(known, *plan, request.user)
@@ -241,11 +246,12 @@ def recipe_link_new(request):
     if known:
         messages.info(request, f"That recipe is already in your binder: {known}.")
         return redirect("meals:recipe", pk=known.pk)
-    waiting = next((j for j in unsaved_imports().exclude(url="") if same_page(j.url, url)), None)
+    waiting = next((j for j in unsaved_imports(request.household).exclude(url="") if same_page(j.url, url)), None)
     if waiting:
         return redirect("meals:recipe_import", pk=waiting.pk)
-    if not planner.enabled():
-        messages.error(request, "Reading recipes with AI isn't set up yet (OPENAI_API_KEY is missing).")
+    blocked = budget.blocked(request.household)
+    if blocked:
+        messages.error(request, blocked)
         return back_to_add(request)
     job = start_import(request, url=url)
     recipe_import.start(job)
@@ -257,8 +263,9 @@ def recipe_photo_new(request):
     """Photos of a recipe, e.g. a magazine page, to be read by AI. The form is on the add page."""
     if request.method != "POST":
         return redirect("meals:recipe_add")
-    if not planner.enabled():
-        messages.error(request, "Reading recipes with AI isn't set up yet (OPENAI_API_KEY is missing).")
+    blocked = budget.blocked(request.household)
+    if blocked:
+        messages.error(request, blocked)
         return back_to_add(request)
     job = start_import(request)
     saved, errors = save_photos(request, job=job)
@@ -278,7 +285,7 @@ def import_formset_class(count):
 @login_required
 def recipe_import_view(request, pk):
     recipe_import.expire_stale()
-    job = get_object_or_404(RecipeImport, pk=pk)
+    job = get_object_or_404(RecipeImport, pk=pk, household=request.household)
     if job.status == RecipeImport.Status.SAVED and job.dish:
         return redirect("meals:recipe", pk=job.dish.pk)
     manual = request.GET.get("manual") == "1"
@@ -290,9 +297,10 @@ def recipe_import_view(request, pk):
     result = job.result if job.status == RecipeImport.Status.DONE else {}
     ingredients = result.get("ingredients", [])
     initial = {k: result.get(k) for k in ("name", "kind", "minutes", "servings", "source", "recipe_url", "notes", "instructions") if result.get(k) is not None}
-    form = RecipeForm(request.POST or None, initial={"status": Dish.Status.TRY, "servings": 4, **initial})
+    form = RecipeForm(request.POST or None, initial={"status": Dish.Status.TRY, "servings": 4, **initial},
+                      household=request.household)
     Formset = import_formset_class(len(ingredients) + 1)
-    formset = Formset(request.POST or None, instance=Dish(), initial=ingredients)
+    formset = Formset(request.POST or None, instance=Dish(household=request.household), initial=ingredients)
     if request.method == "POST" and form.is_valid() and formset.is_valid():
         with transaction.atomic():
             dish = form.save(commit=False)
@@ -315,7 +323,7 @@ def recipe_import_view(request, pk):
         formset=formset,
         checks=sum(1 for i in ingredients if i.get("check")),
         units=UNITS,
-        names=sorted(set(Ingredient.objects.values_list("name", flat=True)), key=str.lower),
+        names=ingredient_names(request.household),
     )
     return render(request, "meals/recipe_import.html", context)
 
@@ -323,7 +331,7 @@ def recipe_import_view(request, pk):
 @login_required
 @require_POST
 def recipe_import_retry(request, pk):
-    job = get_object_or_404(RecipeImport, pk=pk, status=RecipeImport.Status.FAILED)
+    job = get_object_or_404(RecipeImport, pk=pk, household=request.household, status=RecipeImport.Status.FAILED)
     job.status, job.error = RecipeImport.Status.PENDING, ""
     job.save(update_fields=["status", "error"])
     RecipeImport.objects.filter(pk=job.pk).update(created_at=timezone.now())  # a fresh time budget
@@ -334,7 +342,7 @@ def recipe_import_retry(request, pk):
 @login_required
 def recipe_import_status(request, pk):
     recipe_import.expire_stale()
-    job = get_object_or_404(RecipeImport, pk=pk)
+    job = get_object_or_404(RecipeImport, pk=pk, household=request.household)
     # The review page is the same address, so "done" simply reloads it.
     return JsonResponse({
         "status": job.status, "finished": job.finished, "error": job.error,
@@ -344,8 +352,8 @@ def recipe_import_status(request, pk):
 
 @login_required
 def recipe_photo_file(request, pk):
-    """Photos are private: only shown to logged-in family members."""
-    photo = get_object_or_404(RecipePhoto, pk=pk)
+    """Photos are private: only shown to the household's members."""
+    photo = get_object_or_404(RecipePhoto, pk=pk, household=request.household)
     try:
         response = FileResponse(photo.image.open("rb"), content_type="image/jpeg")
     except FileNotFoundError:
@@ -357,7 +365,7 @@ def recipe_photo_file(request, pk):
 @login_required
 @require_POST
 def recipe_photo_add(request, pk):
-    dish = get_object_or_404(Dish, pk=pk)
+    dish = get_object_or_404(Dish, pk=pk, household=request.household)
     saved, errors = save_photos(request, dish=dish)
     for error in errors:
         messages.error(request, error)
@@ -369,22 +377,22 @@ def recipe_photo_add(request, pk):
 @login_required
 @require_POST
 def recipe_photo_delete(request, pk):
-    photo = get_object_or_404(RecipePhoto, pk=pk, dish__isnull=False)
+    photo = get_object_or_404(RecipePhoto, pk=pk, household=request.household, dish__isnull=False)
     dish_pk = photo.dish_id
     photo.delete()
     messages.success(request, "Photo removed.")
     return redirect(reverse("meals:recipe", args=[dish_pk]) + "#photos")
 
 
-def unsaved_imports():
-    """Photo imports still waiting: being read, ready to check, or failed."""
-    return RecipeImport.objects.exclude(status=RecipeImport.Status.SAVED).prefetch_related("photos")
+def unsaved_imports(household):
+    """Imports still waiting: being read, ready to check, or failed."""
+    return RecipeImport.objects.filter(household=household).exclude(status=RecipeImport.Status.SAVED).prefetch_related("photos")
 
 
 @login_required
 @require_POST
 def recipe_import_discard(request, pk):
-    job = get_object_or_404(RecipeImport.objects.exclude(status=RecipeImport.Status.SAVED), pk=pk)
+    job = get_object_or_404(unsaved_imports(request.household), pk=pk)
     for photo in job.photos.filter(dish__isnull=True):
         photo.delete()  # also removes the file
     job.delete()
@@ -404,16 +412,17 @@ def search_text(dish):
 def meal_pick(request):
     """The day's "+ Add": choose a recipe we have (or leftovers), or add a new one."""
     day = parse_date(request.GET.get("date") or request.POST.get("date"))
+    household = request.household
     back = safe_next(request) or reverse("meals:menu_of", args=[day.isoformat()])
     if request.method == "POST":
         slot = request.POST.get("slot") if request.POST.get("slot") in PlannedMeal.Slot.values else PlannedMeal.Slot.DINNER
         if "new" in request.POST:
             return redirect(reverse("meals:recipe_add") + "?" + urlencode({"plan": f"{day.isoformat()}:{slot}", "next": back}))
         if request.POST.get("leftover"):
-            cooked = get_object_or_404(PlannedMeal, pk=request.POST["leftover"])
+            cooked = get_object_or_404(PlannedMeal, pk=request.POST["leftover"], household=household)
             meal = plan_dish(cooked.dish, day, slot, request.user, leftovers=True)
         elif request.POST.get("dish"):
-            meal = plan_dish(get_object_or_404(Dish, pk=request.POST["dish"]), day, slot, request.user)
+            meal = plan_dish(get_object_or_404(Dish, pk=request.POST["dish"], household=household), day, slot, request.user)
         else:  # Enter in the search box without JavaScript: search
             return redirect(reverse("meals:meal_pick") + "?" + urlencode({"date": day.isoformat(), "slot": slot, "q": request.POST.get("q", ""), "next": back}))
         when = f"{meal.date:%a} {meal.get_slot_display().lower()}"
@@ -423,13 +432,13 @@ def meal_pick(request):
         messages.success(request, f"Planned {'leftover ' if meal.leftovers else ''}{meal.dish} for {when}.")
         return redirect(back)
 
-    planned = set(PlannedMeal.objects.filter(date=day).values_list("slot", flat=True))
+    planned = set(PlannedMeal.objects.filter(household=household, date=day).values_list("slot", flat=True))
     slot = request.GET.get("slot")
     if slot not in PlannedMeal.Slot.values:
         slot = PlannedMeal.Slot.LUNCH if PlannedMeal.Slot.DINNER in planned and PlannedMeal.Slot.LUNCH not in planned else PlannedMeal.Slot.DINNER
     query = " ".join(request.GET.get("q", "").split()).lower()
 
-    dishes = with_history(Dish.objects.prefetch_related("ingredients"))
+    dishes = with_history(Dish.objects.filter(household=household).prefetch_related("ingredients"))
     for dish in dishes:
         dish.search = search_text(dish)
     if query:
@@ -442,7 +451,7 @@ def meal_pick(request):
     ]
     week = day - timedelta(days=day.weekday())
     leftovers = (
-        PlannedMeal.objects.filter(date__gte=week, date__lt=day, leftovers=False).select_related("dish").order_by("-date", "slot")
+        PlannedMeal.objects.filter(household=household, date__gte=week, date__lt=day, leftovers=False).select_related("dish").order_by("-date", "slot")
     )
     return render(request, "meals/meal_pick.html", {
         "day": day,

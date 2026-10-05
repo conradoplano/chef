@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Create an account · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <div class="card narrow">
+    <h2>Create an account</h2>
+    <p class="muted">Plan the week's meals and shopping list together. We'll send a six-digit code to confirm your email; there's no password.</p>
+    <form method="post" class="stack">
+      {% csrf_token %}
+      {% include "meals/_fields.html" %}
+      <button class="wide" type="submit">{% if dev_login %}Create account{% else %}Send me a code{% endif %}</button>
+    </form>
+    <p class="muted small">Creating menus and reading recipes with AI is switched on once we've had a look at your account – usually within a day. Everything else works straight away.</p>
+    <p class="center">Already have an account? <a href="{% url 'accounts:login' %}">Sign in</a></p>
+  </div>
+{% endblock %}

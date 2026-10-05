@@ -15,6 +15,7 @@ from accounts.models import User
 
 from . import photos, planner, recipe_import
 from .models import Dish, PlannedMeal, RecipeImport, RecipePhoto
+from .testing import approve_ai, home
 from .test_planner import FakeOpenAI, message, reply
 
 
@@ -76,6 +77,7 @@ class RecipeFromPhotoTests(TestCase):
             patcher.enable() if hasattr(patcher, "enable") else patcher.start()
             self.addCleanup(patcher.disable if hasattr(patcher, "disable") else patcher.stop)
         self.user = User.objects.create_user(email="parent@example.com")
+        approve_ai()
         self.client.force_login(self.user)
 
     def _fake(self, *replies):
@@ -169,10 +171,10 @@ class RecipeFromPhotoTests(TestCase):
     def test_needs_the_api_key(self):
         response = self.client.get(reverse("meals:recipe_photo_new"))
         self.assertRedirects(response, reverse("meals:recipe_add"))
-        self.assertContains(self.client.get(reverse("meals:recipe_add")), "isn't set up yet")
+        self.assertContains(self.client.get(reverse("meals:recipe_add")), "set up yet (OPENAI_API_KEY is missing)")
 
     def test_photos_are_private(self):
-        dish = Dish.objects.create(name="Soup")
+        dish = Dish.objects.create(household=home(), name="Soup")
         self.client.post(reverse("meals:recipe_photo_add", args=[dish.pk]), {"photos": [image_file(size=(400, 300))]})
         photo = dish.photos.get()
         response = self.client.get(reverse("meals:photo", args=[photo.pk]))
@@ -181,7 +183,7 @@ class RecipeFromPhotoTests(TestCase):
         self.assertEqual(self.client.get(reverse("meals:photo", args=[photo.pk])).status_code, 302)
 
     def test_removing_a_photo_deletes_the_file(self):
-        dish = Dish.objects.create(name="Soup")
+        dish = Dish.objects.create(household=home(), name="Soup")
         self.client.post(reverse("meals:recipe_photo_add", args=[dish.pk]), {"photos": [image_file(size=(400, 300))]})
         photo = dish.photos.get()
         path = photo.image.path
@@ -191,8 +193,8 @@ class RecipeFromPhotoTests(TestCase):
         self.assertFalse(os.path.exists(path))
 
     def test_cards_open_recipes_the_app_holds(self):
-        dish = Dish.objects.create(name="Gran's stew", instructions="Brown the meat.\nSimmer 2 hours.", source="Gran's notebook")
-        PlannedMeal.objects.create(date=date(2026, 10, 5), dish=dish)
+        dish = Dish.objects.create(household=home(), name="Gran's stew", instructions="Brown the meat.\nSimmer 2 hours.", source="Gran's notebook")
+        PlannedMeal.objects.create(household=home(), date=date(2026, 10, 5), dish=dish)
         page = self.client.get(reverse("meals:menu_of", args=["2026-10-05"]))
         self.assertContains(page, f'<a class="meal-link" href="{reverse("meals:recipe", args=[dish.pk])}">')
         self.assertContains(page, "📷 Gran&#x27;s notebook")
@@ -225,8 +227,8 @@ class UnfinishedImportTests(TestCase):
         self.client.force_login(User.objects.create_user(email="parent@example.com"))
 
     def _job(self, status, **fields):
-        job = RecipeImport.objects.create(status=status, **fields)
-        photo = RecipePhoto(recipe_import=job)
+        job = RecipeImport.objects.create(household=home(), status=status, **fields)
+        photo = RecipePhoto(household=job.household, recipe_import=job)
         photo.image.save("page.jpg", photos.process(image_file(size=(400, 300))), save=True)
         return job
 
@@ -234,7 +236,7 @@ class UnfinishedImportTests(TestCase):
         ready = self._job("done", result={"name": "Butter bean bake"})
         reading = self._job("running")
         failed = self._job("failed", error="Blurry")
-        saved = self._job("saved", dish=Dish.objects.create(name="Done already"))
+        saved = self._job("saved", dish=Dish.objects.create(household=home(), name="Done already"))
         page = self.client.get(reverse("meals:recipes"))
         self.assertContains(page, "Being added")
         self.assertContains(page, "Butter bean bake")
@@ -263,7 +265,7 @@ class UnfinishedImportTests(TestCase):
         self.assertFalse(os.path.exists(path))
 
     def test_saved_imports_cannot_be_discarded(self):
-        job = self._job("saved", dish=Dish.objects.create(name="Kept"))
+        job = self._job("saved", dish=Dish.objects.create(household=home(), name="Kept"))
         self.assertEqual(self.client.post(reverse("meals:recipe_import_discard", args=[job.pk])).status_code, 404)
         self.assertEqual(RecipePhoto.objects.count(), 1)
 
@@ -317,6 +319,7 @@ class RecipeFromLinkTests(TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.client.force_login(User.objects.create_user(email="parent@example.com"))
+        approve_ai()
 
     def _fake(self, *replies):
         fake = FakeOpenAI(*replies)
@@ -351,13 +354,13 @@ class RecipeFromLinkTests(TestCase):
         self.assertContains(review, 'value="Easy pad thai"')
 
     def test_known_link_goes_to_the_recipe(self):
-        dish = Dish.objects.create(name="Pad thai", recipe_url="https://www.example.com/pad-thai/")
+        dish = Dish.objects.create(household=home(), name="Pad thai", recipe_url="https://www.example.com/pad-thai/")
         response = self.client.post(reverse("meals:recipe_link_new"), {"url": "https://example.com/pad-thai"})
         self.assertRedirects(response, reverse("meals:recipe", args=[dish.pk]))
         self.assertFalse(RecipeImport.objects.exists())
 
     def test_link_being_read_is_not_read_twice(self):
-        job = RecipeImport.objects.create(url="https://example.com/pad-thai", status="running")
+        job = RecipeImport.objects.create(household=home(), url="https://example.com/pad-thai", status="running")
         response = self.client.post(reverse("meals:recipe_link_new"), {"url": "https://example.com/pad-thai/"})
         self.assertRedirects(response, reverse("meals:recipe_import", args=[job.pk]))
         self.assertEqual(RecipeImport.objects.count(), 1)
@@ -372,7 +375,7 @@ class RecipeFromLinkTests(TestCase):
         self.assertEqual(RecipeImport.objects.get().error, "No recipe was found on that page.")
 
     def test_listed_while_being_added(self):
-        RecipeImport.objects.create(url="https://www.example.com/pad-thai", status="running")
+        RecipeImport.objects.create(household=home(), url="https://www.example.com/pad-thai", status="running")
         page = self.client.get(reverse("meals:recipes"))
         self.assertContains(page, "example.com/pad-thai")
         self.assertContains(page, "🔗")

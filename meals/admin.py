@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    AIUsage,
     Dish,
     ExtraItem,
     FamilyMember,
@@ -30,22 +31,23 @@ class IngredientInline(admin.TabularInline):
 
 @admin.register(Dish)
 class DishAdmin(admin.ModelAdmin):
-    list_display = ("name", "kind", "status", "minutes", "recipe_url")
-    list_filter = ("kind", "status")
+    list_display = ("name", "household", "kind", "status", "minutes", "recipe_url")
+    list_filter = ("household", "kind", "status")
     search_fields = ("name",)
     inlines = [IngredientInline, RecipePhotoInline]
 
 
 @admin.register(ExtraItem)
 class ExtraItemAdmin(admin.ModelAdmin):
-    list_display = ("week", "name", "quantity", "category", "created_by")
+    list_display = ("week", "name", "quantity", "category", "household", "created_by")
+    list_filter = ("household",)
     date_hierarchy = "week"
 
 
 @admin.register(PlannedMeal)
 class PlannedMealAdmin(admin.ModelAdmin):
-    list_display = ("date", "slot", "dish", "leftovers", "note", "updated_by")
-    list_filter = ("slot", "leftovers")
+    list_display = ("date", "slot", "dish", "leftovers", "note", "household", "updated_by")
+    list_filter = ("household", "slot", "leftovers")
     date_hierarchy = "date"
     autocomplete_fields = ("dish",)
 
@@ -58,29 +60,40 @@ class FeedbackAdmin(admin.ModelAdmin):
 
 @admin.register(FamilyMember)
 class FamilyMemberAdmin(admin.ModelAdmin):
-    list_display = ("name", "kind", "birth_year")
+    list_display = ("name", "kind", "birth_year", "household")
+    list_filter = ("household",)
 
 
 @admin.register(Rule)
 class RuleAdmin(admin.ModelAdmin):
-    list_display = ("text", "active", "created_at")
-    list_filter = ("active",)
+    list_display = ("text", "active", "household", "created_at")
+    list_filter = ("household", "active")
 
 
 @admin.register(Household)
 class HouseholdAdmin(admin.ModelAdmin):
-    pass
+    list_display = ("__str__", "created_at", "ai_approved", "ai_daily_limit", "is_active")
+    list_filter = ("ai_approved", "is_active")
+    search_fields = ("name", "members__email")
 
 
 @admin.register(MenuRequest)
 class MenuRequestAdmin(admin.ModelAdmin):
-    list_display = ("week", "kind", "status", "model", "cost", "web_searches", "created_by", "created_at")
-    list_filter = ("status", "kind", "model")
+    list_display = ("week", "kind", "status", "model", "cost", "web_searches", "household", "created_by", "created_at")
+    list_filter = ("status", "kind", "model", "household")
     readonly_fields = [f.name for f in MenuRequest._meta.fields]
 
 
 @admin.register(RecipeImport)
 class RecipeImportAdmin(admin.ModelAdmin):
-    list_display = ("created_at", "status", "dish", "model", "cost", "created_by")
-    list_filter = ("status",)
+    list_display = ("created_at", "status", "dish", "model", "cost", "household", "created_by")
+    list_filter = ("status", "household")
     readonly_fields = [f.name for f in RecipeImport._meta.fields]
+
+
+@admin.register(AIUsage)
+class AIUsageAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "household", "user", "kind", "model", "cost", "web_searches")
+    list_filter = ("kind", "model", "household")
+    date_hierarchy = "created_at"
+    readonly_fields = [f.name for f in AIUsage._meta.fields]

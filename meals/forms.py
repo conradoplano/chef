@@ -27,8 +27,10 @@ class PlannedMealForm(forms.ModelForm):
 
     field_order = ["date", "slot", "dish_name", "kind", "recipe_url", "minutes", "leftovers", "note", "eaters", "servings"]
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, household, **kwargs):
         super().__init__(*args, **kwargs)
+        self.instance.household = household
+        self.fields["eaters"].queryset = FamilyMember.objects.filter(household=household)
         if self.instance.pk:
             dish = self.instance.dish
             self.initial.update(dish_name=dish.name, kind=dish.kind, recipe_url=dish.recipe_url, minutes=dish.minutes)
@@ -38,7 +40,11 @@ class PlannedMealForm(forms.ModelForm):
 
     def save(self, commit=True):
         data = self.cleaned_data
-        dish = Dish.objects.filter(name__iexact=data["dish_name"]).first() or Dish(name=data["dish_name"])
+        household = self.instance.household
+        dish = (
+            Dish.objects.filter(household=household, name__iexact=data["dish_name"]).first()
+            or Dish(household=household, name=data["dish_name"])
+        )
         dish.kind = data["kind"]
         dish.recipe_url = data["recipe_url"]
         dish.minutes = data["minutes"]
@@ -70,7 +76,8 @@ class RuleForm(forms.ModelForm):
 class HouseholdForm(forms.ModelForm):
     class Meta:
         model = Household
-        exclude = ["usual_week", "pantry", "freezer"]  # each has its own place on the settings page
+        # Name, usual week and staples have their own place on the settings page; the rest is for admins.
+        exclude = ["name", "usual_week", "pantry", "freezer", "created_at", "ai_approved", "ai_daily_limit", "is_active"]
         widgets = small_textareas(["cuisines", "equipment", "shops", "recipe_sites"])
 
     def clean_adventurousness(self):
@@ -150,9 +157,13 @@ class RecipeForm(forms.ModelForm):
             "notes": forms.Textarea(attrs={"rows": 3, "placeholder": "E.g. what to change next time"}),
         }
 
+    def __init__(self, *args, household, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.instance.household = household
+
     def clean_name(self):
         name = " ".join(self.cleaned_data["name"].split())
-        clash = Dish.objects.filter(name__iexact=name).exclude(pk=self.instance.pk).first()
+        clash = Dish.objects.filter(household=self.instance.household, name__iexact=name).exclude(pk=self.instance.pk).first()
         if clash:
             raise forms.ValidationError(f"There's already a recipe called “{clash.name}”.")
         return name
@@ -171,3 +182,20 @@ class WeeklyItemForm(forms.ModelForm):
             "name": forms.TextInput(attrs={"placeholder": "E.g. fruit"}),
             "quantity": forms.TextInput(attrs={"placeholder": "E.g. 3 kg"}),
         }
+
+
+class HouseholdNameForm(forms.ModelForm):
+    class Meta:
+        model = Household
+        fields = ["name"]
+        labels = {"name": "Household name"}
+        help_texts = {"name": ""}
+        widgets = {"name": forms.TextInput(attrs={"placeholder": "E.g. The Smiths"})}
+
+
+class InviteForm(forms.Form):
+    email = forms.EmailField(widget=forms.EmailInput(attrs={"placeholder": "Their email", "autocomplete": "off"}))
+    name = forms.CharField(max_length=150, required=False, widget=forms.TextInput(attrs={"placeholder": "Name (optional)"}))
+
+    def clean_email(self):
+        return self.cleaned_data["email"].strip().lower()

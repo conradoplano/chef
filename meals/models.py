@@ -2,6 +2,7 @@ from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Dish(models.Model):
@@ -38,7 +39,8 @@ class Dish(models.Model):
         "youtube.com": "YouTube",
     }
 
-    name = models.CharField(max_length=200, unique=True)
+    household = models.ForeignKey("Household", on_delete=models.CASCADE, related_name="+")
+    name = models.CharField(max_length=200)
     kind = models.CharField(max_length=12, choices=Kind.choices, default=Kind.OTHER, verbose_name="type")
     recipe_url = models.URLField("recipe link", max_length=500, blank=True)
     minutes = models.PositiveSmallIntegerField("cooking time (min)", null=True, blank=True)
@@ -58,6 +60,7 @@ class Dish(models.Model):
     class Meta:
         ordering = ["name"]
         verbose_name_plural = "dishes"
+        constraints = [models.UniqueConstraint(fields=["household", "name"], name="unique_dish_per_household")]
 
     def __str__(self):
         return self.name
@@ -77,8 +80,6 @@ class Dish(models.Model):
 
     def set_status(self, status):
         """Moves the recipe in the binder; remembers when it was first saved."""
-        from django.utils import timezone
-
         if status and not self.status:
             self.saved_at = timezone.now()
         self.status = status
@@ -109,6 +110,7 @@ class PlannedMeal(models.Model):
         LUNCH = "lunch", "Lunch"
         DINNER = "dinner", "Dinner"
 
+    household = models.ForeignKey("Household", on_delete=models.CASCADE, related_name="+")
     date = models.DateField()
     slot = models.CharField(max_length=10, choices=Slot.choices, default=Slot.DINNER, verbose_name="meal")
     dish = models.ForeignKey(Dish, on_delete=models.PROTECT, related_name="planned")
@@ -173,6 +175,7 @@ class FamilyMember(models.Model):
         ADULT = "adult", "Adult"
         CHILD = "child", "Child"
 
+    household = models.ForeignKey("Household", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=100)
     kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.ADULT)
     birth_year = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -195,6 +198,7 @@ class FamilyMember(models.Model):
 class Rule(models.Model):
     """A planning rule, e.g. "Fish twice a week"."""
 
+    household = models.ForeignKey("Household", on_delete=models.CASCADE, related_name="+")
     text = models.CharField(max_length=300)
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -207,8 +211,9 @@ class Rule(models.Model):
 
 
 class Household(models.Model):
-    """How we cook and shop. A single row, edited on the settings page.
-    Free-text preferences are rules; which meals and who eats is the usual week."""
+    """A family using the app, and how they cook and shop. Everything else (dishes, menus, lists)
+    belongs to one household; users belong to one household. Free-text preferences are rules;
+    which meals and who eats is the usual week."""
 
     class Priority(models.TextChoices):
         BALANCED = "balanced", "Balanced"
@@ -216,6 +221,16 @@ class Household(models.Model):
         CONVENIENCE = "convenience", "Convenience"
         QUALITY = "quality", "Quality"
         WASTE = "waste", "Less waste"
+
+    name = models.CharField(max_length=100, blank=True, help_text="E.g. The Smiths.")
+    created_at = models.DateTimeField(default=timezone.now)
+    # AI costs money: new households can use everything else straight away, AI once an admin approves.
+    ai_approved = models.BooleanField("AI approved", default=False)
+    ai_daily_limit = models.DecimalField(
+        "AI limit per day (USD)", max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text="Empty: the app's default. 0: no AI.",
+    )
+    is_active = models.BooleanField("active", default=True, help_text="Suspended households can't log in.")
 
     weekday_minutes = models.PositiveSmallIntegerField("max. cooking time on weekdays (min)", null=True, blank=True)
     weekend_minutes = models.PositiveSmallIntegerField("max. cooking time at the weekend (min)", null=True, blank=True)
@@ -247,14 +262,10 @@ class Household(models.Model):
     usual_week = models.JSONField(default=dict, blank=True)
 
     class Meta:
-        verbose_name_plural = "household"
+        ordering = ["name", "pk"]
 
     def __str__(self):
-        return "Household"
-
-    @classmethod
-    def load(cls):
-        return cls.objects.get_or_create(pk=1)[0]
+        return self.name or f"Household {self.pk}"
 
 
 class Category(models.TextChoices):
@@ -293,6 +304,7 @@ class Ingredient(models.Model):
 class ExtraItem(models.Model):
     """Something on a week's shopping list that isn't for a planned meal."""
 
+    household = models.ForeignKey("Household", on_delete=models.CASCADE, related_name="+")
     week = models.DateField(help_text="Monday of the week.")
     name = models.CharField(max_length=100)
     quantity = models.CharField(max_length=50, blank=True)
@@ -313,13 +325,14 @@ class ShoppingCheck(models.Model):
     """An item marked as bought on a week's list. Items are identified by key, so checks
     survive menu changes for ingredients that are still on the list."""
 
+    household = models.ForeignKey("Household", on_delete=models.CASCADE, related_name="+")
     week = models.DateField()
     key = models.CharField(max_length=120)
     checked_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
     checked_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["week", "key"], name="unique_check_per_week")]
+        constraints = [models.UniqueConstraint(fields=["household", "week", "key"], name="unique_check_per_week")]
 
     def __str__(self):
         return f"{self.week}: {self.key}"
@@ -339,8 +352,9 @@ class MenuRequest(models.Model):
         CHANGE = "change", "Change menu"
         REPLACE = "replace", "Replace a dish"
 
+    household = models.ForeignKey("Household", on_delete=models.CASCADE, related_name="+")
     week = models.DateField(help_text="Monday of the week.")
-    # Only "create" requests write the week's "About this menu".
+    # "create" and "change" requests write the week's "About this menu"; "replace" doesn't.
     kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.CREATE)
     replacing = models.CharField(max_length=200, blank=True, help_text="Dish being replaced, for 'replace' requests.")
     # [{"date": "2026-10-05", "slot": "dinner", "eaters": [member ids]}, ...]
@@ -383,6 +397,7 @@ class RecipeImport(models.Model):
         FAILED = "failed", "Failed"
         SAVED = "saved", "Saved"
 
+    household = models.ForeignKey("Household", on_delete=models.CASCADE, related_name="+")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
     # Started from a day on the menu: once saved, the recipe is planned there.
     plan_date = models.DateField(null=True, blank=True)
@@ -416,6 +431,7 @@ class RecipeImport(models.Model):
 class RecipePhoto(models.Model):
     """A photo of a recipe (magazine page, book, handwritten card) or of the finished dish."""
 
+    household = models.ForeignKey("Household", on_delete=models.CASCADE, related_name="+")
     image = models.ImageField(upload_to="recipes/%Y/%m")
     dish = models.ForeignKey(Dish, null=True, blank=True, on_delete=models.CASCADE, related_name="photos")
     recipe_import = models.ForeignKey(RecipeImport, null=True, blank=True, on_delete=models.SET_NULL, related_name="photos")
@@ -438,6 +454,7 @@ class RecipePhoto(models.Model):
 class WeeklyItem(models.Model):
     """Something on every week's shopping list, e.g. fruit, bread or snacks for the kids."""
 
+    household = models.ForeignKey("Household", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=100)
     quantity = models.CharField(max_length=50, blank=True)
     category = models.CharField(max_length=12, choices=Category.choices, default=Category.OTHER)
@@ -449,3 +466,30 @@ class WeeklyItem(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class AIUsage(models.Model):
+    """What one call to the AI cost, for the daily limits and the admin page.
+    Kept when the menu request or recipe import it was for is deleted."""
+
+    class Kind(models.TextChoices):
+        MENU = "menu", "Menu"
+        RECIPE = "recipe", "Recipe"
+
+    household = models.ForeignKey(Household, null=True, on_delete=models.SET_NULL, related_name="ai_usage")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    model = models.CharField(max_length=50, blank=True)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    web_searches = models.PositiveIntegerField(default=0)
+    cost = models.DecimalField("cost (USD)", max_digits=8, decimal_places=4, default=0)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "AI usage"
+        verbose_name_plural = "AI usage"
+
+    def __str__(self):
+        return f"{self.get_kind_display()} for {self.household}: ${self.cost}"

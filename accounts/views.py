@@ -4,7 +4,8 @@ Passwordless login with a six-digit code sent by email.
 A code (rather than a link) keeps the login inside whatever app or browser the
 user started in, which matters when the site is installed on the home screen.
 The pending login lives in the session, so a code only works in the browser
-that requested it.
+that requested it. Registering works the same way: the household and account are
+only created once the code proves the email address.
 """
 import logging
 import secrets
@@ -15,6 +16,8 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login, logout
 from django.core.mail import send_mail
+from django.db import transaction
+from django.http import Http404
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -22,7 +25,10 @@ from django.utils.crypto import constant_time_compare, salted_hmac
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from .forms import CodeForm, EmailLoginForm
+from meals import notify
+from meals.models import Household
+
+from .forms import CodeForm, EmailLoginForm, RegisterForm
 from .models import LoginCodeRequest, User
 
 logger = logging.getLogger(__name__)
@@ -74,22 +80,10 @@ def login_request(request):
             messages.error(request, "Too many codes were requested for this address. Please wait a few minutes.")
             return render(request, "accounts/login.html", {"form": form})
 
-        code = f"{secrets.randbelow(10**6):06d}"
         # Store state even for unknown emails so the flow looks identical.
-        request.session[SESSION_KEY] = {
-            "uid": user.pk if user else None,
-            "hash": _hash(code),
-            "expires": time.time() + settings.LOGIN_CODE_MAX_AGE,
-            "attempts": 0,
-            "next": next_url,
-        }
+        code = _pending(request, uid=user.pk if user else None, next_url=next_url)
         if user:
-            try:
-                _send_code(user, code)
-            except Exception:
-                logger.exception("Could not send login code to %s", email)
-                del request.session[SESSION_KEY]
-                messages.error(request, "We couldn't send the email right now. Please try again later.")
+            if not _send_code(request, email, user.get_short_name(), code):
                 return render(request, "accounts/login.html", {"form": form})
         else:
             logger.info("Login requested for unknown email %s", email)
@@ -98,19 +92,89 @@ def login_request(request):
     return render(request, "accounts/login.html", {"form": form})
 
 
-def _send_code(user, code):
+def _pending(request, uid=None, register=None, next_url=""):
+    """Remembers the login (or registration) waiting for its code; returns the code."""
+    code = f"{secrets.randbelow(10**6):06d}"
+    request.session[SESSION_KEY] = {
+        "uid": uid,
+        "register": register,
+        "hash": _hash(code),
+        "expires": time.time() + settings.LOGIN_CODE_MAX_AGE,
+        "attempts": 0,
+        "next": next_url,
+    }
+    return code
+
+
+def _send_code(request, email, name, code):
+    """Emails the code. Returns False (with a message for the user) if that failed."""
     context = {
-        "user": user,
+        "name": name,
         "code": code,
         "minutes": settings.LOGIN_CODE_MAX_AGE // 60,
         "site_name": settings.SITE_NAME,
     }
-    send_mail(
-        subject=f"Your {settings.SITE_NAME} login code: {code}",
-        message=render_to_string("accounts/email/login_code.txt", context),
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[user.email],
-    )
+    try:
+        send_mail(
+            subject=f"Your {settings.SITE_NAME} login code: {code}",
+            message=render_to_string("accounts/email/login_code.txt", context),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+        )
+        return True
+    except Exception:
+        logger.exception("Could not send login code to %s", email)
+        del request.session[SESSION_KEY]
+        messages.error(request, "We couldn't send the email right now. Please try again later.")
+        return False
+
+
+def register(request):
+    """A new household: the person registering, their name and the household's name.
+    They can use the app straight away; AI once an admin has approved the household."""
+    if not settings.REGISTRATION_OPEN:
+        raise Http404("Registration is closed")
+    if request.user.is_authenticated:
+        return redirect(settings.LOGIN_REDIRECT_URL)
+
+    form = RegisterForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        data = form.cleaned_data
+        email = data["email"]
+        user = User.objects.filter(email__iexact=email).first()
+
+        if settings.DEV_LOGIN:
+            user = user or create_household(data)
+            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+            return redirect("meals:family")
+
+        if _too_many_codes(email):
+            logger.warning("Too many codes requested for %s", email)
+            messages.error(request, "Too many codes were requested for this address. Please wait a few minutes.")
+            return render(request, "accounts/register.html", {"form": form})
+        if user is None:
+            code = _pending(request, register=data)
+            if not _send_code(request, email, data["name"].split(" ")[0], code):
+                return render(request, "accounts/register.html", {"form": form})
+        elif user.is_active:
+            # Already registered: the code simply logs them in.
+            code = _pending(request, uid=user.pk)
+            if not _send_code(request, email, user.get_short_name(), code):
+                return render(request, "accounts/register.html", {"form": form})
+        else:
+            _pending(request)
+        return redirect("accounts:verify")
+
+    return render(request, "accounts/register.html", {"form": form})
+
+
+@transaction.atomic
+def create_household(data):
+    """The household and its first member, from the registration form. Tells the admins."""
+    household = Household.objects.create(name=data["household"] or f"{data['name'].split(' ')[0]}'s household")
+    user = User.objects.create_user(email=data["email"], name=data["name"], household=household)
+    transaction.on_commit(lambda: notify.new_household(user))
+    return user
 
 
 def login_verify(request):
@@ -128,16 +192,25 @@ def login_verify(request):
         state["attempts"] += 1
         request.session[SESSION_KEY] = state
 
-        user = User.objects.filter(pk=state["uid"], is_active=True).first() if state["uid"] else None
-        if user and constant_time_compare(_hash(form.cleaned_data["code"]), state["hash"]):
+        user = None
+        if constant_time_compare(_hash(form.cleaned_data["code"]), state["hash"]):
+            registering = state.get("register")
+            if registering:
+                user = User.objects.filter(email__iexact=registering["email"]).first() or create_household(registering)
+            elif state["uid"]:
+                user = User.objects.filter(pk=state["uid"]).first()
+        if user and user.is_active:
             next_url = state["next"]
             del request.session[SESSION_KEY]
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+            if state.get("register"):
+                messages.success(request, "Welcome! Start by adding your family and your usual week; then plan your first menu.")
+                return redirect("meals:family")
             return redirect(next_url or settings.LOGIN_REDIRECT_URL)
 
         form.add_error("code", "That code is not correct.")
 
-    return render(request, "accounts/verify.html", {"form": form})
+    return render(request, "accounts/verify.html", {"form": form, "registering": bool(state.get("register"))})
 
 
 @require_POST

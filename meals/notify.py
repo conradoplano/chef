@@ -1,4 +1,4 @@
-"""Emails the rest of the family when the AI has created or changed a week's menu."""
+"""Emails the household when the AI has created or changed a week's menu, and the admins about new households."""
 import logging
 from datetime import timedelta
 
@@ -19,19 +19,40 @@ def site_url():
     return (settings.SITE_URL or next(iter(settings.CSRF_TRUSTED_ORIGINS), "")).rstrip("/")
 
 
+def new_household(user):
+    """Tells the admins someone registered, so they can approve AI for the household."""
+    recipients = list(User.objects.filter(is_staff=True, is_active=True).exclude(email="").values_list("email", flat=True))
+    if not recipients:
+        return
+    url = site_url() + reverse("meals:manage") + "#pending" if site_url() else ""
+    try:
+        send_mail(
+            subject=f"{settings.SITE_NAME}: {user.household} registered",
+            message=(
+                f"{user.name} <{user.email}> registered the household \"{user.household}\".\n\n"
+                f"They can use {settings.SITE_NAME} now; AI starts once you approve it"
+                + (f":\n{url}\n" if url else " on the admin page.\n")
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=recipients,
+        )
+    except Exception:
+        logger.exception("Could not tell the admins about household %s", user.household_id)
+
+
 def menu_ready(request):
-    """Tells everyone except the person who asked. Failures are logged, never raised."""
+    """Tells everyone in the household, including the person who asked. Failures are logged, never raised."""
     if not settings.MENU_EMAILS:
         return
     recipients = list(
-        User.objects.filter(is_active=True).exclude(pk=request.created_by_id).exclude(email="")
+        User.objects.filter(household=request.household_id, is_active=True).exclude(email="")
         .values_list("email", flat=True)
     )
     if not recipients:
         return
     slots = {(s["date"], s["slot"]) for s in request.slots}
     meals = [
-        m for m in PlannedMeal.objects.filter(date__range=(request.week, request.week + timedelta(days=6)))
+        m for m in PlannedMeal.objects.filter(household=request.household_id, date__range=(request.week, request.week + timedelta(days=6)))
         .select_related("dish")
         if (m.date.isoformat(), m.slot) in slots
     ]

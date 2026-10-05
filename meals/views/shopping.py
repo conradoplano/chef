@@ -19,7 +19,7 @@ from .common import parse_date, safe_next, week_context, week_start
 @login_required
 def shopping(request, day=None):
     context = week_context(request, day)
-    sections, at_home, missing = shopping_list.build(context["start"])
+    sections, at_home, missing = shopping_list.build(request.household, context["start"])
     items = [*at_home, *(i for s in sections for i in s.items)]
     context.update(
         sections=sections,
@@ -30,6 +30,7 @@ def shopping(request, day=None):
         signature=shopping_list.signature(sections, at_home),
         extra_form=ExtraItemForm(prefix="extra"),
         removed=ExtraItem.objects.filter(
+            household=request.household,
             pk=request.GET.get("removed") if request.GET.get("removed", "").isdigit() else None,
             removed_at__isnull=False,
         ).first(),
@@ -39,7 +40,7 @@ def shopping(request, day=None):
 
 @login_required
 def shopping_state(request, day):
-    return JsonResponse(shopping_list.state(week_start(parse_date(day))))
+    return JsonResponse(shopping_list.state(request.household, week_start(parse_date(day))))
 
 
 @login_required
@@ -48,14 +49,17 @@ def shopping_toggle(request, day):
     """Marks one item as bought or not. Sends the wanted state rather than flipping,
     so two people tapping at the same time don't undo each other."""
     week = week_start(parse_date(day))
+    household = request.household
     key = request.POST.get("key", "")[:120]
     if key:
         if request.POST.get("checked") == "1":
-            ShoppingCheck.objects.update_or_create(week=week, key=key, defaults={"checked_by": request.user})
+            ShoppingCheck.objects.update_or_create(
+                household=household, week=week, key=key, defaults={"checked_by": request.user}
+            )
         else:
-            ShoppingCheck.objects.filter(week=week, key=key).delete()
+            ShoppingCheck.objects.filter(household=household, week=week, key=key).delete()
     if request.headers.get("X-Requested-With") == "fetch":
-        return JsonResponse(shopping_list.state(week))
+        return JsonResponse(shopping_list.state(household, week))
     return redirect("meals:shopping_of", day=week.isoformat())
 
 
@@ -70,7 +74,7 @@ def staple_add(request):
     """Something we always have (pantry, freezer): from the shopping list or the settings page."""
     kind, name = staple_list(request), " ".join(request.POST.get("name", "").split())
     icon, label = shopping_list.STAPLE_LISTS[kind]
-    if shopping_list.add_staple(kind, name):
+    if shopping_list.add_staple(request.household, kind, name):
         messages.success(request, f"{icon} {name} is on the {label} list now.")
     elif name:
         messages.info(request, f"{name} is already on the {label} list.")
@@ -81,7 +85,7 @@ def staple_add(request):
 @require_POST
 def staple_remove(request):
     kind, name = staple_list(request), request.POST.get("name", "")
-    if shopping_list.remove_staple(kind, name):
+    if shopping_list.remove_staple(request.household, kind, name):
         messages.success(request, f"Removed {name} from the {shopping_list.STAPLE_LISTS[kind][1]} list.")
     return redirect(safe_next(request) or reverse("meals:family") + "#staples")
 
@@ -94,6 +98,7 @@ def extra_add(request, day):
     if form.is_valid():
         extra = form.save(commit=False)
         extra.week = week
+        extra.household = request.household
         extra.created_by = request.user
         extra.save()
         messages.success(request, f"Added {extra}.")
@@ -106,12 +111,12 @@ def extra_add(request, day):
 @require_POST
 def extra_delete(request, pk):
     """Hides the item; it can be brought back with Undo until it is purged a day later."""
-    extra = get_object_or_404(ExtraItem, pk=pk, removed_at=None)
+    extra = get_object_or_404(ExtraItem, pk=pk, household=request.household, removed_at=None)
     now = timezone.now()
     extra.removed_at = now
     extra.save(update_fields=["removed_at"])
     for old in ExtraItem.objects.filter(removed_at__lt=now - timedelta(days=1)):
-        ShoppingCheck.objects.filter(week=old.week, key=f"extra-{old.pk}").delete()
+        ShoppingCheck.objects.filter(household=old.household_id, week=old.week, key=f"extra-{old.pk}").delete()
         old.delete()
     url = reverse("meals:shopping_of", args=[extra.week.isoformat()])
     return redirect(f"{url}?{urlencode({'removed': extra.pk})}")
@@ -120,7 +125,7 @@ def extra_delete(request, pk):
 @login_required
 @require_POST
 def extra_restore(request, pk):
-    extra = get_object_or_404(ExtraItem, pk=pk)
+    extra = get_object_or_404(ExtraItem, pk=pk, household=request.household)
     extra.removed_at = None
     extra.save(update_fields=["removed_at"])
     messages.success(request, f"{extra} is back on the list.")

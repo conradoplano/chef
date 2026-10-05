@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 
-from .models import Category, ExtraItem, Household, PlannedMeal, ShoppingCheck, WeeklyItem
+from .models import Category, ExtraItem, PlannedMeal, ShoppingCheck, WeeklyItem
 
 # Units that are converted to a base unit before adding up: unit -> (base, factor).
 CONVERSIONS = {
@@ -103,35 +103,34 @@ STAPLE_MATCHES = {
 }
 
 
-def staple_items(kind):
+def staple_items(household, kind):
     """A staples list, as entered (one per line; commas also work)."""
-    text = getattr(Household.load(), kind)
+    text = getattr(household, kind)
     return [" ".join(s.split()) for s in re.split(r"[\n,;]+", text) if s.strip()]
 
 
-def save_staples(kind, items):
-    household = Household.load()
+def save_staples(household, kind, items):
     setattr(household, kind, "\n".join(items))
     household.save(update_fields=[kind])
 
 
-def add_staple(kind, name):
+def add_staple(household, kind, name):
     """Adds a staple unless it's already on the list (as the same ingredient). Returns True if added."""
     name = " ".join(name.split())[:100]
-    items = staple_items(kind)
+    items = staple_items(household, kind)
     if not name or item_key(name) in {item_key(i) for i in items}:
         return False
-    save_staples(kind, sorted([*items, name], key=str.lower))
+    save_staples(household, kind, sorted([*items, name], key=str.lower))
     return True
 
 
-def remove_staple(kind, name):
+def remove_staple(household, kind, name):
     """Removes the staple and anything that is the same ingredient (e.g. "Onions" for "onion")."""
     key = item_key(name)
-    items = staple_items(kind)
+    items = staple_items(household, kind)
     kept = [i for i in items if item_key(i) != key]
     if len(kept) != len(items):
-        save_staples(kind, kept)
+        save_staples(household, kind, kept)
         return True
     return False
 
@@ -142,14 +141,14 @@ def matching_staple(key, staples):
     return next((name for s, name in staples if key == s or re.search(rf"\b{re.escape(s)}\b", key)), None)
 
 
-def build(week):
-    """Returns (sections, at_home, missing) for the week starting on Monday `week`.
+def build(household, week):
+    """Returns (sections, at_home, missing) for the household's week starting on Monday `week`.
 
     at_home: items that are staples (pantry or freezer), to check before shopping.
     missing: cooked meals whose dish has no ingredients yet.
     """
     meals = (
-        PlannedMeal.objects.filter(date__range=(week, week + timedelta(days=6)), leftovers=False)
+        PlannedMeal.objects.filter(household=household, date__range=(week, week + timedelta(days=6)), leftovers=False)
         .select_related("dish")
         .prefetch_related("dish__ingredients", "dish__photos")
     )
@@ -185,27 +184,27 @@ def build(week):
         item.quantity = format_quantities(amounts[key], key in unknown)
 
     items = list(merged.values())
-    for extra in ExtraItem.objects.filter(week=week, removed_at=None):
+    for extra in ExtraItem.objects.filter(household=household, week=week, removed_at=None):
         items.append(
             Item(key=f"extra-{extra.pk}", name=extra.name, category=extra.category, quantity=extra.quantity,
                  notes=[extra.note] if extra.note else [], extra=extra)
         )
 
     # Weekly items, from the week they were added on.
-    for weekly in WeeklyItem.objects.filter(created_at__date__lt=week + timedelta(days=7)):
+    for weekly in WeeklyItem.objects.filter(household=household, created_at__date__lt=week + timedelta(days=7)):
         items.append(
             Item(key=f"weekly-{weekly.pk}", name=weekly.name, category=weekly.category, quantity=weekly.quantity,
                  notes=[weekly.note] if weekly.note else [], weekly=weekly)
         )
 
-    checks = {c.key: c for c in ShoppingCheck.objects.filter(week=week).select_related("checked_by")}
+    checks = {c.key: c for c in ShoppingCheck.objects.filter(household=household, week=week).select_related("checked_by")}
     for item in items:
         check = checks.get(item.key)
         if check:
             item.checked = True
             item.checked_by = check.checked_by.get_short_name() if check.checked_by else ""
 
-    staples = {kind: [(item_key(s), s) for s in staple_items(kind)] for kind in STAPLE_LISTS}
+    staples = {kind: [(item_key(s), s) for s in staple_items(household, kind)] for kind in STAPLE_LISTS}
     for item in items:
         if item.extra or item.weekly:
             continue
@@ -240,9 +239,9 @@ def signature(sections, at_home):
     return hashlib.sha1("\n".join(lines).encode()).hexdigest()[:12]
 
 
-def state(week):
+def state(household, week):
     """What other devices need to stay in sync: who checked what, and the list's signature."""
-    sections, at_home, _ = build(week)
+    sections, at_home, _ = build(household, week)
     items = [*at_home, *(i for s in sections for i in s.items)]
     return {
         "checked": {i.key: i.checked_by for i in items if i.checked},

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Admin · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <p class="small"><a href="{% url 'meals:family' %}">‹ Settings</a></p>
+  <h2>Admin</h2>
+
+  <section class="card">
+    <h3>✨ AI costs</h3>
+    <table class="kv small">
+      <tr><td class="muted">Today</td><td>${{ today|floatformat:2 }} of ${{ global_limit|floatformat:2 }} for everyone</td></tr>
+      <tr><td class="muted">This month</td><td>${{ month|floatformat:2 }}</td></tr>
+      <tr><td class="muted">All time</td><td>${{ total|floatformat:2 }}</td></tr>
+    </table>
+    {% if by_model %}
+      <h4>By model</h4>
+      <table class="kv small models">
+        <tr class="muted"><td>Model</td><td>Calls</td><td>This month</td><td>All time</td></tr>
+        {% for row in by_model %}
+          <tr><td>{{ row.model|default:"–" }}</td><td>{{ row.calls }}</td><td>${{ row.month|default:0|floatformat:2 }}</td><td>${{ row.total|floatformat:2 }}</td></tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+    <p class="muted small">Each household may spend ${{ default_limit|floatformat:2 }} a day, unless it has its own limit below. When the day's total for everyone reaches ${{ global_limit|floatformat:2 }}, AI pauses until tomorrow.</p>
+  </section>
+
+  <section class="card" id="pending">
+    <h3>Waiting for AI ({{ pending|length }})</h3>
+    {% for h in pending %}
+      <div class="household-row">
+        <div class="line">
+          <strong>{{ h }}</strong>
+          <span class="muted small">since {{ h.created_at|date:"j M Y" }}</span>
+        </div>
+        <div class="small">{% for m in h.members.all %}{{ m.name|default:"" }} &lt;{{ m.email }}&gt;{% if not forloop.last %}, {% endif %}{% empty %}<span class="muted">No members</span>{% endfor %}</div>
+        <div class="household-actions">
+          <form method="post" action="{% url 'meals:manage_household' h.pk %}" class="inline">
+            {% csrf_token %}<button type="submit" name="action" value="approve" class="small">Approve AI</button>
+          </form>
+        </div>
+      </div>
+    {% empty %}
+      <p class="muted">Nobody is waiting.</p>
+    {% endfor %}
+  </section>
+
+  <section class="card" id="households">
+    <h3>Households ({{ households|length }})</h3>
+    {% for h in households %}
+      <div class="household-row{% if not h.is_active %} off{% endif %}" id="household-{{ h.pk }}">
+        <div class="line">
+          <strong>{{ h }}</strong>
+          <span>
+            {% if not h.is_active %}<span class="badge danger">Suspended</span>
+            {% elif h.ai_approved %}<span class="badge">AI on</span>
+            {% else %}<span class="badge">Waiting for AI</span>{% endif %}
+          </span>
+        </div>
+        <div class="small muted">{% for m in h.members.all %}{{ m.email }}{% if not forloop.last %}, {% endif %}{% empty %}No members{% endfor %} · since {{ h.created_at|date:"j M Y" }}</div>
+        <div class="small{% if h.over_limit %} warn{% endif %}">
+          Today ${{ h.cost_today|default:0|floatformat:2 }} of ${{ h.limit|floatformat:2 }} · this month ${{ h.cost_month|default:0|floatformat:2 }} · all time ${{ h.cost_total|default:0|floatformat:2 }}
+        </div>
+        <div class="household-actions">
+          <form method="post" action="{% url 'meals:manage_household' h.pk %}" class="limit-form">
+            {% csrf_token %}<input type="hidden" name="action" value="limit">
+            <label class="small muted" for="limit-{{ h.pk }}">$ / day</label>
+            <input id="limit-{{ h.pk }}" type="number" name="limit" step="0.01" min="0" inputmode="decimal"
+                   value="{% if h.ai_daily_limit is not None %}{{ h.ai_daily_limit }}{% endif %}" placeholder="{{ default_limit|floatformat:2 }}">
+            <button type="submit" class="ghost small">Save</button>
+          </form>
+          <form method="post" action="{% url 'meals:manage_household' h.pk %}" class="inline">
+            {% csrf_token %}
+            {% if h.ai_approved %}
+              <button type="submit" name="action" value="revoke" class="ghost small">Switch AI off</button>
+            {% else %}
+              <button type="submit" name="action" value="approve" class="ghost small">Approve AI</button>
+            {% endif %}
+          </form>
+          <form method="post" action="{% url 'meals:manage_household' h.pk %}" class="inline"
+                {% if h.is_active %}data-confirm="Suspend {{ h }}? Its members can't log in until it's reactivated."{% endif %}>
+            {% csrf_token %}
+            {% if h.is_active %}
+              <button type="submit" name="action" value="suspend" class="link small danger">Suspend</button>
+            {% else %}
+              <button type="submit" name="action" value="reactivate" class="ghost small">Reactivate</button>
+            {% endif %}
+          </form>
+        </div>
+      </div>
+    {% endfor %}
+  </section>
+{% endblock %}
