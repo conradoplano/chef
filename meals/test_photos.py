@@ -3,6 +3,7 @@ import io
 import shutil
 import tempfile
 from datetime import date
+from decimal import Decimal
 from unittest import mock
 
 from django.core.exceptions import ValidationError
@@ -89,6 +90,32 @@ class RecipeFromPhotoTests(TestCase):
 
     def _upload(self, *files):
         return self.client.post(reverse("meals:recipe_photo_new"), {"photos": list(files) or [image_file()]})
+
+    def test_ingredients_kept_as_read_are_all_saved(self):
+        """Rows saved exactly as the AI filled them in, also without a quantity ("a handful of mint")."""
+        self._fake(reply(recipe_call(ingredients=[
+            {"name": "Feta", "quantity": 50, "unit": "g", "category": "dairy", "note": "crumbled", "check": False},
+            {"name": "Mint leaves", "quantity": None, "unit": "handful", "category": "vegetables", "note": "picked", "check": False},
+            {"name": "Black olives", "quantity": None, "unit": "handful", "category": "pantry", "note": "", "check": False},
+        ])))
+        self.client.post(reverse("meals:recipe_photo_new"), {"photos": [image_file()]})
+        job = RecipeImport.objects.get()
+        form = self.client.get(reverse("meals:recipe_import", args=[job.pk])).context["formset"]
+        data = {"name": "Aubergine salad", "kind": "vegetarian", "servings": "4", "status": "try", "recipe_url": "",
+                "source": "", "minutes": "", "instructions": "", "notes": "",
+                "ingredients-TOTAL_FORMS": str(len(form.forms)), "ingredients-INITIAL_FORMS": "0",
+                "ingredients-MIN_NUM_FORMS": "0", "ingredients-MAX_NUM_FORMS": "1000"}
+        for row in form.forms:  # what the browser sends back for untouched rows
+            for name in ["name", "quantity", "unit", "category", "note"]:
+                value = row[name].value()
+                data[row.add_prefix(name)] = "" if value is None else str(value)
+        data["ingredients-2-name"] = ""  # clearing a name leaves that ingredient out
+        self.client.post(reverse("meals:recipe_import", args=[job.pk]), data)
+        dish = Dish.objects.get(name="Aubergine salad")
+        self.assertEqual(
+            [(i.name, i.quantity, i.unit) for i in dish.ingredients.all()],
+            [("Feta", Decimal("50.00"), "g"), ("Mint leaves", None, "handful")],
+        )
 
     def test_read_check_and_save(self):
         fake = self._fake(reply(SimpleSearch(), recipe_call()))
@@ -379,3 +406,37 @@ class RecipeFromLinkTests(TestCase):
         page = self.client.get(reverse("meals:recipes"))
         self.assertContains(page, "example.com/pad-thai")
         self.assertContains(page, "🔗")
+
+
+class RestoreDroppedIngredientsMigrationTests(TestCase):
+    """0023 puts back ingredients without a quantity that saving an AI-read recipe left out."""
+
+    def test_adds_back_only_what_is_missing(self):
+        from importlib import import_module
+
+        from django.apps import apps
+
+        household = User.objects.create_user(email="pat@example.com").household
+        dish = Dish.objects.create(household=household, name="Aubergine salad")
+        dish.ingredients.create(name="feta", quantity=50, unit="g", category="dairy")
+        dish.ingredients.create(name="Mint", unit="handful", category="vegetables")  # kept, under a shorter name
+        read = [
+            {"name": "feta", "quantity": "50.00", "unit": "g", "category": "dairy", "note": "crumbled", "check": False},
+            {"name": "mint leaves", "quantity": None, "unit": "handful", "category": "vegetables", "note": "picked", "check": False},
+            {"name": "black olives", "quantity": None, "unit": "handful", "category": "pantry", "note": "pitted and torn", "check": False},
+            {"name": "parsley leaves", "quantity": None, "unit": "handful", "category": "vegetables", "note": "picked", "check": False},
+            {"name": "aubergines", "quantity": "2.00", "unit": "", "category": "vegetables", "note": "", "check": False},
+        ]
+        RecipeImport.objects.create(household=household, status="saved", dish=dish, result={"ingredients": read})
+        RecipeImport.objects.create(household=household, status="done", result={"ingredients": read})  # not saved yet
+
+        restore = import_module("meals.migrations.0023_restore_dropped_ingredients").restore_dropped_ingredients
+        restore(apps, None)
+        restore(apps, None)  # nothing twice
+
+        self.assertEqual(
+            [(i.name, i.quantity, i.unit, i.category, i.note) for i in dish.ingredients.all()],
+            [("feta", Decimal("50.00"), "g", "dairy", ""), ("Mint", None, "handful", "vegetables", ""),
+             ("black olives", None, "handful", "pantry", "pitted and torn"),
+             ("parsley leaves", None, "handful", "vegetables", "picked")],
+        )

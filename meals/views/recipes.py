@@ -263,8 +263,18 @@ def recipe_photo_new(request):
     return redirect("meals:recipe_import", pk=job.pk)
 
 
+class ImportedIngredientForm(IngredientForm):
+    """A row prefilled with what the AI read. Django leaves out new rows that are unchanged from how they
+    were prefilled, taking them for unused blank rows; a row the family accepts as it is, without a
+    quantity ("a handful of mint"), would be lost. Here every row with a name is saved, and clearing the
+    name leaves an ingredient out."""
+
+    def has_changed(self):
+        return bool(self.data.get(self.add_prefix("name"), "").strip())
+
+
 def import_formset_class(count):
-    return forms.inlineformset_factory(Dish, Ingredient, form=IngredientForm, extra=count, can_delete=True)
+    return forms.inlineformset_factory(Dish, Ingredient, form=ImportedIngredientForm, extra=count, can_delete=True)
 
 
 @login_required
