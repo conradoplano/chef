@@ -94,8 +94,28 @@ def leftovers_after(meal):
     )
 
 
+def plan_dish(dish, day, slot, user, leftovers=False):
+    """Puts a dish on the menu, for the people who usually eat that meal."""
+    from .. import schedule
+    from ..models import FamilyMember
+
+    meal = PlannedMeal.objects.create(date=day, slot=slot, dish=dish, leftovers=leftovers, updated_by=user)
+    meal.eaters.set(schedule.usual_week(list(FamilyMember.objects.all()))[day.weekday()][slot]["eaters"])
+    return meal
+
+
+def parse_plan(value):
+    """"2026-10-06:dinner" -> (date, slot), or None. Carries "add it to this day" through adding a recipe."""
+    day, _, slot = (value or "").partition(":")
+    try:
+        day = date.fromisoformat(day)
+    except ValueError:
+        return None
+    return (day, slot) if slot in PlannedMeal.Slot.values else None
+
+
 def safe_next(request):
-    next_url = request.GET.get("next", "")
+    next_url = request.GET.get("next", "") or request.POST.get("next", "")
     return next_url if next_url and url_has_allowed_host_and_scheme(next_url, {request.get_host()}) else ""
 
 

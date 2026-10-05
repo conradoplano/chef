@@ -123,7 +123,8 @@
     };
     viewToggle('hide-bought', 'hide-bought', ['Hide bought', 'Show bought']);
     viewToggle('hide-uses', 'hide-uses', ['Hide meals', 'Show meals']);
-    viewToggle('hide-pantry', 'hide-pantry', ['Hide staples', 'Show staples']);
+    // The item buttons: keep as a staple (pantry, freezer) or remove from the staples.
+    viewToggle('hide-buttons', 'hide-buttons', ['Hide buttons', 'Show buttons']);
   }
 
   // --- Ingredients: add another empty row. ---
@@ -188,6 +189,29 @@
       if (button) button.disabled = false;
     });
   });
+
+  // --- Choosing a recipe for a day: filter as you type. ---
+  const pickSearch = document.getElementById('pick-search');
+  if (pickSearch) {
+    const filter = () => {
+      const words = pickSearch.value.toLowerCase().split(/\s+/).filter(Boolean);
+      let shown = 0;
+      document.querySelectorAll('.pick-group').forEach((group) => {
+        let inGroup = 0;
+        group.querySelectorAll('.pick-card').forEach((card) => {
+          const match = words.every((w) => card.dataset.search.includes(w));
+          card.hidden = !match;
+          if (match) inGroup++;
+        });
+        group.hidden = !inGroup;
+        shown += inGroup;
+      });
+      document.getElementById('pick-empty').hidden = shown > 0;
+    };
+    pickSearch.addEventListener('input', filter);
+    // Enter filters instead of submitting the form.
+    pickSearch.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); filter(); } });
+  }
 
   // --- Installable app: pass-through service worker. ---
   const swUrl = document.body.dataset.swUrl;

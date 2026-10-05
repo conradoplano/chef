@@ -4,7 +4,7 @@
     <h3>{{ d.date|date:"l" }} <span class="muted">{{ d.date|date:"j M" }}</span>
       {% if d.date == today %}<span class="badge today-badge">Today</span>{% endif %}</h3>
     {% if not d.meals %}<span class="muted small">Nothing planned</span>{% endif %}
-    <a class="btn ghost small" href="{% url 'meals:meal_new' %}?date={{ d.date.isoformat }}{% if return_to %}&amp;next={{ return_to|urlencode }}{% endif %}"
+    <a class="btn ghost small" href="{% url 'meals:meal_pick' %}?date={{ d.date.isoformat }}{% if return_to %}&amp;next={{ return_to|urlencode }}{% endif %}"
        aria-label="Add a meal on {{ d.date|date:'l' }}">+ Add</a>
   </header>
   {% for m in d.meals %}

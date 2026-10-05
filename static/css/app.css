@@ -402,9 +402,10 @@ button.badge.pantry-btn {
   min-height: 0; padding: 0 .45rem; font-size: .7rem; line-height: 1.5; font-weight: 600;
   background: var(--herb-soft); color: var(--herb); border: 0; border-radius: 999px; cursor: pointer;
 }
-#shopping.hide-pantry .pantry-action { display: none; }
-#shopping.hide-uses .uses:not(:has(.pantry-action)) { display: none; }
-#shopping.hide-uses .uses .badge.use, #shopping.hide-uses .uses .extra-badge { display: none; }
+/* "Hide meals" hides the line of meal chips; "Hide buttons" the line of item buttons below it. */
+#shopping.hide-uses .uses { display: none; }
+#shopping.hide-buttons .item-tools { display: none; }
+.item-tools { display: flex; flex-wrap: wrap; gap: .2rem .25rem; align-items: center; padding-left: 1.7rem; margin-top: .2rem; }
 .pantry-list { list-style: none; padding: 0; margin: 0 0 .75rem; display: flex; flex-wrap: wrap; gap: .35rem; }
 .pantry-list li { display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .3rem .15rem .65rem; border: 1px solid var(--border); border-radius: 999px; font-size: .9rem; background: var(--card); }
 .pantry-list .link { padding: 0 .25rem; }
@@ -414,3 +415,20 @@ table.kv.wrap td:first-child { width: 42%; padding-right: .75rem; }
 table.kv.wrap td:last-child { white-space: normal; text-align: left; overflow-wrap: anywhere; padding-left: 0; }
 .staple-list + .staple-list { margin-top: .9rem; padding-top: .75rem; border-top: 1px solid var(--border); }
 .staple-list h4 { margin: 0 0 .4rem; font-size: .95rem; }
+/* Weekly items */
+.weekly-list li { gap: .5rem; }
+.weekly-add .row { align-items: center; }
+.weekly-submit { flex: 0 0 auto !important; }
+/* Choosing a recipe for a day */
+.slot-pills > div { display: flex; gap: .4rem; }
+.pick-search { display: flex; gap: .5rem; }
+.pick-search input { flex: 1; min-width: 0; padding: .55rem .7rem; border: 1px solid var(--border); border-radius: 8px; font: inherit; background: #fff; }
+.pick-group h3 { margin: .5rem 0 .4rem; font-size: .95rem; }
+.pick-card { padding: .6rem .8rem; margin-bottom: .45rem; }
+.pick-card .recipe-name { font-weight: 600; flex: 1; min-width: 0; }
+.pick-card .meta { display: flex; flex-wrap: wrap; gap: .2rem .7rem; align-items: center; margin-top: .15rem; }
+.pick-ingredients { margin: .3rem 0 0; color: var(--muted); }
+.pick-more summary { cursor: pointer; color: var(--accent); font-size: .85rem; margin-top: .3rem; }
+.pick-more .steps { margin-top: .4rem; }
+[hidden] { display: none !important; }
+.item-tools form { display: flex; }

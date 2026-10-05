@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Add a meal · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <p class="small"><a href="{{ next }}">‹ Back</a></p>
+  <h2>Add a meal</h2>
+  <p class="muted">{{ day|date:"l j F" }}</p>
+
+  <form method="post" class="stack pick-form">
+    {% csrf_token %}
+    <input type="hidden" name="date" value="{{ day.isoformat }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <div class="pills slot-pills" role="radiogroup" aria-label="Meal">
+      <div>
+        {% for value, label in slots %}
+          <label><input type="radio" name="slot" value="{{ value }}"{% if value == slot %} checked{% endif %}> {{ label }}</label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="pick-search">
+      <input type="search" id="pick-search" name="q" value="{{ query }}" placeholder="Search name, ingredient or notes" aria-label="Search recipes" autocomplete="off">
+      <button type="submit" name="new" value="1" class="btn ghost">＋ New recipe</button>
+    </div>
+
+    {% if leftovers %}
+      <section class="pick-group">
+        <h3>♻ Leftovers from this week</h3>
+        {% for m in leftovers %}
+          <div class="card pick-card" data-search="{{ m.dish.name|lower }}">
+            <div class="line">
+              <span class="recipe-name">{{ m.dish.icon }} {{ m.dish.name }}</span>
+              <button type="submit" name="leftover" value="{{ m.pk }}" class="btn small">Add</button>
+            </div>
+            <div class="meta small muted"><span>Cooked {{ m.date|date:"D" }} {{ m.get_slot_display|lower }}{% if m.servings %} · {{ m.servings }} portions{% endif %}</span></div>
+          </div>
+        {% endfor %}
+      </section>
+    {% endif %}
+
+    {% for title, dishes in groups %}
+      <section class="pick-group">
+        <h3>{{ title }}</h3>
+        {% for d in dishes %}
+          <div class="card pick-card" data-search="{{ d.search }}">
+            <div class="line">
+              <span class="recipe-name">{{ d.icon }} {{ d.name }}</span>
+              <button type="submit" name="dish" value="{{ d.pk }}" class="btn small">Add</button>
+            </div>
+            <div class="meta small muted">
+              <span>{{ d.get_kind_display }}</span>
+              {% if d.minutes %}<span>⏱ {{ d.minutes }} min</span>{% endif %}
+              {% if d.recipe_url %}<span class="badge source">{{ d.recipe_source }}</span>{% elif d.source %}<span class="badge source">📷 {{ d.source|truncatechars:24 }}</span>{% endif %}
+              {% if d.cooked %}<span>Cooked {{ d.cooked }}×{% if d.last_cooked %} · last {{ d.last_cooked|date:"j M" }}{% endif %}</span>{% else %}<span>Not cooked yet</span>{% endif %}
+              {% with f=d.latest_feedback %}{% if f %}<span>{% if f.kids %}Kids {{ f.kids_emoji }}{% endif %} {% if f.parents %}Parents {{ f.parents_emoji }}{% endif %}{% if f.reaction %} ⚠{% endif %}</span>{% endif %}{% endwith %}
+            </div>
+            {% with ings=d.ingredients.all %}
+              {% if ings %}<p class="small pick-ingredients">{% for i in ings|slice:":8" %}{{ i.name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if ings|length > 8 %} …{% endif %}</p>{% endif %}
+              {% if ings or d.steps or d.notes %}
+                <details class="pick-more">
+                  <summary>More</summary>
+                  {% if d.notes %}<p class="small note">{{ d.notes }}</p>{% endif %}
+                  {% if ings %}
+                    <ul class="plain-list small">{% for i in ings %}<li>{{ i.name }}{% if i.quantity %} <span class="qty">{{ i.quantity|floatformat:"-2" }} {{ i.unit }}</span>{% endif %}</li>{% endfor %}</ul>
+                    <p class="muted small">For {{ d.servings }} portions.</p>
+                  {% endif %}
+                  {% if d.steps %}<ol class="steps small">{% for step in d.steps %}<li>{{ step }}</li>{% endfor %}</ol>{% endif %}
+                  <p class="small"><a href="{% url 'meals:recipe' d.pk %}">Open the recipe</a>{% if d.recipe_url %} · <a href="{{ d.recipe_url }}" target="_blank" rel="noopener">{{ d.recipe_source }} ↗</a>{% endif %}</p>
+                </details>
+              {% endif %}
+            {% endwith %}
+          </div>
+        {% endfor %}
+      </section>
+    {% endfor %}
+    <p class="muted center" id="pick-empty"{% if count %} hidden{% endif %}>No recipes found{% if query %} for “{{ query }}”{% endif %}. Try another word, or add a new recipe.</p>
+  </form>
+{% endblock %}

@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import Dish, ExtraItem, FamilyMember, Feedback, Household, Ingredient, PlannedMeal, Rule
+from .models import Dish, ExtraItem, FamilyMember, Feedback, Household, Ingredient, PlannedMeal, Rule, WeeklyItem
 
 
 class DateInput(forms.DateInput):
@@ -161,3 +161,13 @@ class RecipeForm(forms.ModelForm):
 class AddToMenuForm(forms.Form):
     date = forms.DateField(widget=DateInput())
     slot = forms.ChoiceField(label="Meal", choices=PlannedMeal.Slot.choices, initial=PlannedMeal.Slot.DINNER)
+
+
+class WeeklyItemForm(forms.ModelForm):
+    class Meta:
+        model = WeeklyItem
+        fields = ["name", "quantity", "category"]
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "E.g. fruit"}),
+            "quantity": forms.TextInput(attrs={"placeholder": "E.g. 3 kg"}),
+        }

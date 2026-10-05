@@ -3,8 +3,8 @@
 {% block title %}Settings · {{ site_name }}{% endblock %}
 
 {% block content %}
-  <h2>⚙ Settings</h2>
-  <p class="muted small">Your family, usual week, rules, what's always at home and how menus are created. Everything here is taken into account when a menu is created.</p>
+  <h2>Settings</h2>
+  <p class="muted small">Your family, usual week, rules, what's always at home, weekly shopping and how menus are created. Everything here is taken into account when a menu is created.</p>
 
   <section class="card">
     <div class="line section-head">
@@ -89,6 +89,34 @@
         </form>
       </div>
     {% endfor %}
+  </section>
+
+  <section class="card" id="weekly">
+    <h3>🔁 Every week</h3>
+    <p class="muted small">Added to every week's shopping list, e.g. fruit, bread or snacks for the kids.</p>
+    {% if weekly_items %}
+      <ul class="plain-list weekly-list">
+        {% for item in weekly_items %}
+          <li class="line">
+            <span><strong>{{ item.name }}</strong>{% if item.quantity %} <span class="qty">{{ item.quantity }}</span>{% endif %} <span class="muted small">· {{ item.get_category_display }}</span></span>
+            <form method="post" action="{% url 'meals:weekly_item_delete' item.pk %}" class="inline">
+              {% csrf_token %}<button type="submit" class="link small danger" aria-label="Stop adding {{ item.name }} every week">✕</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    <form method="post" action="{% url 'meals:weekly_item_add' %}" class="stack weekly-add">
+      {% csrf_token %}
+      <div class="row">
+        <div class="field">{{ weekly_form.name }}</div>
+        <div class="field">{{ weekly_form.quantity }}</div>
+      </div>
+      <div class="row">
+        <div class="field">{{ weekly_form.category }}</div>
+        <div class="field weekly-submit"><button type="submit">Add</button></div>
+      </div>
+    </form>
   </section>
 
   <section class="card">

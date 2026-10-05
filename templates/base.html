@@ -21,7 +21,7 @@
       {% if user.is_authenticated %}
         <div class="who">
           {% with name=request.resolver_match.url_name %}
-          <a href="{% url 'meals:family' %}" class="{% if name == 'family' or name == 'member' or name == 'member_new' or name == 'rule' or name == 'household' or name == 'usual_week' %}on{% endif %}">⚙ Settings</a>
+          <a href="{% url 'meals:family' %}" class="{% if name == 'family' or name == 'member' or name == 'member_new' or name == 'rule' or name == 'household' or name == 'usual_week' %}on{% endif %}">Settings</a>
           {% endwith %}
           <form method="post" action="{% url 'accounts:logout' %}" class="inline">
             {% csrf_token %}<button type="submit" class="link">Log out</button>
@@ -43,7 +43,7 @@
     <nav class="tabs">
       <a href="{% url 'meals:home' %}" class="{% if name == 'home' %}on{% endif %}">
         <span class="ic">⌂</span>Home</a>
-      <a href="{% url 'meals:menu' %}" class="{% if name == 'menu' or name == 'menu_of' or name == 'meal' or name == 'meal_new' or name == 'feedback' %}on{% endif %}">
+      <a href="{% url 'meals:menu' %}" class="{% if name == 'menu' or name == 'menu_of' or name == 'meal' or name == 'meal_new' or name == 'meal_pick' or name == 'feedback' %}on{% endif %}">
         <span class="ic">🍽</span>Menu</a>
       <a href="{% url 'meals:shopping' %}" class="{% if name == 'shopping' or name == 'shopping_of' %}on{% endif %}">
         <span class="ic">🛒</span>Shopping</a>

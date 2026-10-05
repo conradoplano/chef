@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 
-from .models import Category, ExtraItem, Household, PlannedMeal, ShoppingCheck
+from .models import Category, ExtraItem, Household, PlannedMeal, ShoppingCheck, WeeklyItem
 
 # Units that are converted to a base unit before adding up: unit -> (base, factor).
 CONVERSIONS = {
@@ -74,6 +74,7 @@ class Item:
     notes: list = field(default_factory=list)
     uses: list = field(default_factory=list)
     extra: ExtraItem = None
+    weekly: WeeklyItem = None
     checked_by: str = ""
     checked: bool = False
     staple_list: str = ""  # "pantry" or "freezer" if it's a staple we usually have
@@ -82,7 +83,7 @@ class Item:
     @property
     def can_be_staple(self):
         """The list this item could be kept on (pantry, freezer), if any; fresh food can't."""
-        return "" if self.extra else STAPLE_CATEGORIES.get(self.category, "")
+        return "" if self.extra or self.weekly else STAPLE_CATEGORIES.get(self.category, "")
 
 
 @dataclass
@@ -190,6 +191,13 @@ def build(week):
                  notes=[extra.note] if extra.note else [], extra=extra)
         )
 
+    # Weekly items, from the week they were added on.
+    for weekly in WeeklyItem.objects.filter(created_at__date__lt=week + timedelta(days=7)):
+        items.append(
+            Item(key=f"weekly-{weekly.pk}", name=weekly.name, category=weekly.category, quantity=weekly.quantity,
+                 notes=[weekly.note] if weekly.note else [], weekly=weekly)
+        )
+
     checks = {c.key: c for c in ShoppingCheck.objects.filter(week=week).select_related("checked_by")}
     for item in items:
         check = checks.get(item.key)
@@ -199,7 +207,7 @@ def build(week):
 
     staples = {kind: [(item_key(s), s) for s in staple_items(kind)] for kind in STAPLE_LISTS}
     for item in items:
-        if item.extra:
+        if item.extra or item.weekly:
             continue
         for kind, names in staples.items():
             if item.category in STAPLE_MATCHES[kind]:

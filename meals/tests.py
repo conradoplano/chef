@@ -631,7 +631,7 @@ class HomeRestOfWeekTests(TestCase):
         self.assertNotIn("Yesterday soup", content)
         self.assertNotIn("Next week pizza", content)
         # Empty days can still get a meal, and come back home afterwards.
-        self.assertIn('href="/meal/new/?date=2026-10-02&amp;next=/"', content)
+        self.assertIn('href="/meal/pick/?date=2026-10-02&amp;next=/"', content)
 
     def test_cards_in_rest_of_week_return_home(self):
         thursday = PlannedMeal.objects.get(dish__name="Thursday salmon")
@@ -852,12 +852,12 @@ class SettingsPageTests(TestCase):
     def test_settings_link_replaces_family_tab_and_admin(self):
         self.client.force_login(User.objects.create_user(email="parent@example.com"))
         page = self.client.get(reverse("meals:home"))
-        self.assertContains(page, f'href="{reverse("meals:family")}" class="">⚙ Settings</a>')
+        self.assertContains(page, f'href="{reverse("meals:family")}" class="">Settings</a>')
         self.assertNotContains(page, "</span>Family</a>")
         self.assertNotContains(page, ">Admin</a>")
         settings_page = self.client.get(reverse("meals:family"))
-        self.assertContains(settings_page, "<h2>⚙ Settings</h2>")
-        self.assertContains(settings_page, 'class="on">⚙ Settings</a>')
+        self.assertContains(settings_page, "<h2>Settings</h2>")
+        self.assertContains(settings_page, 'class="on">Settings</a>')
         self.assertNotContains(settings_page, "Open admin")  # not an admin user
 
     def test_admin_section_for_admins(self):
@@ -887,8 +887,8 @@ class StapleTests(TestCase):
 
     def test_buttons_by_section(self):
         page = self.client.get(self.url)
-        self.assertContains(page, 'id="hide-pantry"')
-        self.assertContains(page, ">Hide staples</button>")
+        self.assertContains(page, 'id="hide-buttons"')
+        self.assertContains(page, ">Hide buttons</button>")
         # Pantry and speciality items go to the pantry, frozen ones to the freezer; fresh food gets nothing.
         self.assertContains(page, "🫙 Always have it", count=4)
         self.assertContains(page, "❄️ Always in the freezer", count=1)
@@ -929,6 +929,14 @@ class StapleTests(TestCase):
         self.assertContains(page, "<span>Ice cream</span>")
         self.client.post(reverse("meals:staple_remove"), {"name": "Eggs", "list": "pantry"})
         self.assertEqual(Household.load().pantry, "olive oil")
+
+    def test_buttons_are_on_their_own_line(self):
+        page = self.client.get(self.url).content.decode()
+        item = page[page.index('data-key="stock"'):]
+        item = item[:item.index("</li>")]
+        # Meal chips first, then the buttons line.
+        self.assertLess(item.index('class="uses"'), item.index('class="item-tools"'))
+        self.assertNotIn("pantry-btn", item[item.index('class="uses"'):item.index('class="item-tools"')])
 
     def test_staples_only_match_where_they_can_be(self):
         dish = Dish.objects.get(name="Risotto")

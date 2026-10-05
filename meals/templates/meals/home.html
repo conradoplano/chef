@@ -17,7 +17,7 @@
   <section class="day-group today">
     <header class="day-head">
       <h3>Today's menu</h3>
-      <a class="btn ghost small" href="{% url 'meals:meal_new' %}?date={{ today.isoformat }}&amp;next={% url 'meals:home' %}"
+      <a class="btn ghost small" href="{% url 'meals:meal_pick' %}?date={{ today.isoformat }}&amp;next={% url 'meals:home' %}"
          aria-label="Add a meal today">+ Add</a>
     </header>
     {% for m in meals %}

@@ -22,7 +22,7 @@ Phone screens with made-up demo data.
   <tr>
     <td align="center"><img src="docs/screenshots/add-recipe.jpg" width="250" alt="Add a recipe from a link, photos or by typing it in"><br><sub><b>Add a recipe</b> – link, photos or typed</sub></td>
     <td align="center"><img src="docs/screenshots/settings.jpg" width="250" alt="Settings: family, usual week, rules and household"><br><sub><b>Settings</b> – family, rules, household</sub></td>
-    <td></td>
+    <td align="center"><img src="docs/screenshots/pick.jpg" width="250" alt="Adding a meal to a day: leftovers, favourites and search"><br><sub><b>Add a meal</b> – pick a recipe for a day</sub></td>
   </tr>
 </table>
 
@@ -30,12 +30,14 @@ Phone screens with made-up demo data.
 
 - **Home** – today's meals and the rest of the week (on Sundays: next Monday to Friday), with one-tap feedback.
 - **Menu** – the week's meals as cards (recipe link, cooking time, portions, notes); swipe or use ‹ › to change
-  week. Meals can be added, changed or removed by hand, copied from a past week, or planned with AI.
+  week. A day's **+ Add** picks a recipe we have (search by name, ingredient or notes; favourites first; leftovers
+  from earlier that week) or adds a new one by link, photo or typing. Meals can also be copied from a past week
+  or planned with AI.
 - **Shopping** – the week's list, built from the menu's ingredients: merged across recipes, scaled to the
   portions planned, grouped by section, with the meals each item is for. Ticks sync between phones.
-  Staples go to "Check at home": **🫙 Always have it** (pantry and speciality items) and **❄️ Always in the
-  freezer** (frozen items) add an item to the staples; the buttons can be hidden with *Hide staples*, like
-  *Hide meals* and *Hide bought*.
+  Items set to come **every week** (fruit, bread, snacks...) are added automatically. Staples go to "Check at home": **🫙 Always have it** (pantry and speciality items) and **❄️ Always in the
+  freezer** (frozen items) add an item to the staples; these buttons can be hidden with *Hide buttons*,
+  like *Hide meals* and *Hide bought*.
 - **Recipes** – the recipe binder: ★ favourites, recipes we found and want to try, and every dish cooked, with
   history and feedback. Add recipes, add them to a menu, star a dish from any meal card. A recipe to try that
   everyone likes becomes a favourite; AI planning reuses favourites and works in recipes to try.

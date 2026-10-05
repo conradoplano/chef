@@ -384,6 +384,10 @@ class RecipeImport(models.Model):
         SAVED = "saved", "Saved"
 
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    # Started from a day on the menu: once saved, the recipe is planned there.
+    plan_date = models.DateField(null=True, blank=True)
+    plan_slot = models.CharField(max_length=10, blank=True)
+    plan_next = models.CharField(max_length=300, blank=True)
     # A recipe is read either from photos (RecipePhoto rows) or from a web page at this address.
     url = models.URLField("recipe link", max_length=500, blank=True)
     result = models.JSONField(default=dict, blank=True, help_text="What the AI read, before checking.")
@@ -429,3 +433,19 @@ class RecipePhoto(models.Model):
         super().delete(*args, **kwargs)
         if name:
             storage.delete(name)
+
+
+class WeeklyItem(models.Model):
+    """Something on every week's shopping list, e.g. fruit, bread or snacks for the kids."""
+
+    name = models.CharField(max_length=100)
+    quantity = models.CharField(max_length=50, blank=True)
+    category = models.CharField(max_length=12, choices=Category.choices, default=Category.OTHER)
+    note = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name

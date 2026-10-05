@@ -29,6 +29,7 @@
     </div>
   {% else %}
     <h2>Check the recipe</h2>
+    {% if job.plan_date %}<p class="muted small">Once saved, it's planned for {{ job.plan_date|date:"l j M" }}, {{ job.plan_slot }}.</p>{% endif %}
     {% if job.status == "done" %}
       <p class="muted">{% if job.url %}The AI copied the recipe from the page. Check it, especially quantities{% else %}The AI read the photos{% if form.initial.recipe_url %} and found it online{% endif %}. Check it against the photos, especially quantities{% endif %}{% if checks %} – <strong class="warn">⚠ {{ checks }} ingredient{{ checks|pluralize }} to double-check</strong>{% endif %}.</p>
     {% endif %}

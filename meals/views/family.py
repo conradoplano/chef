@@ -1,14 +1,15 @@
 """Family members, rules, household settings and the usual week."""
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .. import schedule
 from .. import shopping as shopping_list
-from ..forms import FamilyMemberForm, HouseholdForm, RuleForm
-from ..models import FamilyMember, Household, Rule
+from ..forms import FamilyMemberForm, HouseholdForm, RuleForm, WeeklyItemForm
+from ..models import FamilyMember, Household, Rule, WeeklyItem
 
 
 @login_required
@@ -31,6 +32,8 @@ def family(request):
             "members": members,
             "usual_week": schedule.summary(schedule.usual_week(members), members),
             "rules": Rule.objects.all(),
+            "weekly_items": WeeklyItem.objects.all(),
+            "weekly_form": WeeklyItemForm(prefix="weekly"),
             "staples": [
                 {"kind": kind, "icon": icon, "label": label.capitalize(), "items": shopping_list.staple_items(kind),
                  "example": {"pantry": "olive oil", "freezer": "frozen peas"}[kind]}
@@ -124,3 +127,24 @@ def usual_week(request):
     return render(
         request, "meals/usual_week.html", {"rows": schedule.rows(keys, grid, members), "members": members}
     )
+
+
+@login_required
+@require_POST
+def weekly_item_add(request):
+    form = WeeklyItemForm(request.POST, prefix="weekly")
+    if form.is_valid():
+        item = form.save()
+        messages.success(request, f"{item} is on the shopping list every week now.")
+    else:
+        messages.error(request, "Enter a name for the item.")
+    return redirect(reverse("meals:family") + "#weekly")
+
+
+@login_required
+@require_POST
+def weekly_item_delete(request, pk):
+    item = get_object_or_404(WeeklyItem, pk=pk)
+    item.delete()
+    messages.success(request, f"{item} is no longer added every week.")
+    return redirect(reverse("meals:family") + "#weekly")

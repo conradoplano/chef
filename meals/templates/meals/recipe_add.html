@@ -3,8 +3,9 @@
 {% block title %}Add a recipe · {{ site_name }}{% endblock %}
 
 {% block content %}
-  <p class="small"><a href="{% url 'meals:recipes' %}">‹ Recipes</a></p>
+  <p class="small"><a href="{% if next %}{{ next }}{% else %}{% url 'meals:recipes' %}{% endif %}">‹ {% if next %}Back{% else %}Recipes{% endif %}</a></p>
   <h2>Add a recipe</h2>
+  {% if plan %}<p class="muted">It will be planned for {{ plan_day|date:"l j M" }}, {{ plan_slot }}.</p>{% endif %}
   {% if not ai_enabled %}
     <div class="flash">Reading links and photos needs AI, which isn't set up yet (<code>OPENAI_API_KEY</code>). You can still type recipes in.</div>
   {% endif %}
@@ -13,7 +14,7 @@
     <h3>🔗 From a link</h3>
     <p class="muted small">Paste the address of a recipe page. Ingredients, method and times are copied in for you to check.</p>
     <form method="post" action="{% url 'meals:recipe_link_new' %}" class="add-link">
-      {% csrf_token %}
+      {% csrf_token %}{% if plan %}<input type="hidden" name="plan" value="{{ plan }}"><input type="hidden" name="next" value="{{ next }}">{% endif %}
       <input type="url" name="url" value="{{ url }}" placeholder="https://…" inputmode="url" autocomplete="off" required aria-label="Recipe address"{% if url %} autofocus{% endif %}>
       <button type="submit"{% if not ai_enabled %} disabled{% endif %}>Get recipe</button>
     </form>
@@ -23,13 +24,13 @@
     <h3>📷 From photos</h3>
     <p class="muted small">A magazine page, a cookbook or a handwritten card – up to 6 photos, e.g. both pages of a magazine recipe.</p>
     <form method="post" action="{% url 'meals:recipe_photo_new' %}" enctype="multipart/form-data" class="add-photo">
-      {% csrf_token %}
+      {% csrf_token %}{% if plan %}<input type="hidden" name="plan" value="{{ plan }}"><input type="hidden" name="next" value="{{ next }}">{% endif %}
       <input type="file" name="photos" accept="image/*" multiple data-resize required aria-label="Recipe photos">
       <button type="submit"{% if not ai_enabled %} disabled{% endif %}>Read photos</button>
     </form>
   </section>
 
-  <a class="card add-way add-manual" href="{% url 'meals:recipe_new' %}">
+  <a class="card add-way add-manual" href="{% url 'meals:recipe_new' %}{% if plan %}?plan={{ plan|urlencode }}&amp;next={{ next|urlencode }}{% endif %}">
     <span><h3>✍️ Type it in</h3><span class="muted small">Grandma's recipe, or one you know by heart.</span></span>
     <span aria-hidden="true">›</span>
   </a>
