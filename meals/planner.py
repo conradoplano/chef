@@ -35,8 +35,13 @@ STALE_AFTER = timedelta(minutes=15)
 TIME_BUDGET = 12 * 60
 
 # USD per million input / output tokens, to show what a request cost. Unknown models show no cost.
+# OpenAI's standard prices for prompts under 272K tokens (developers.openai.com/api/docs/pricing, Oct 2026).
+# Cached input is cheaper, but counted at the full input price here, so costs are rather too high than too low.
 PRICES = {
+    "gpt-5.4": (Decimal("2.50"), Decimal("15.00")),
     "gpt-5.4-mini": (Decimal("0.75"), Decimal("4.50")),
+    "gpt-5.4-nano": (Decimal("0.20"), Decimal("1.25")),
+    "gpt-5.4-pro": (Decimal("30.00"), Decimal("180.00")),
     "gpt-6.1-sol": (Decimal("2"), Decimal("10")),
     "gpt-6-astra": (Decimal("10"), Decimal("50")),
 }

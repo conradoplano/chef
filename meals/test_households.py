@@ -330,7 +330,11 @@ class BudgetTests(TestCase):
     def test_prices_for_dated_model_versions(self):
         self.assertEqual(planner.prices_for("gpt-5.4-mini-2026-03-17"), planner.PRICES["gpt-5.4-mini"])
         self.assertEqual(planner.prices_for(" GPT-6.1-sol "), planner.PRICES["gpt-6.1-sol"])
-        self.assertIsNone(planner.prices_for("gpt-5.4"))
+        self.assertEqual(planner.prices_for("gpt-5.4"), (Decimal("2.50"), Decimal("15.00")))
+        self.assertEqual(planner.prices_for("gpt-5.4-2026-03-05"), planner.PRICES["gpt-5.4"])
+        # A longer known name wins over gpt-5.4 itself.
+        self.assertEqual(planner.prices_for("gpt-5.4-nano-2026-03-17"), planner.PRICES["gpt-5.4-nano"])
+        self.assertIsNone(planner.prices_for("gpt-5"))
         usage = {"input": 1_000_000, "output": 0, "searches": 1}
         self.assertEqual(planner.cost("gpt-5.4-mini-2026-03-17", usage), Decimal("0.7600"))
 
