@@ -54,7 +54,6 @@
   const shopping = document.getElementById('shopping');
   if (shopping) {
     const stateUrl = shopping.dataset.stateUrl;
-    const signature = shopping.dataset.signature;
     let pending = 0;
 
     const render = (state) => {
@@ -74,7 +73,8 @@
       const bar = document.getElementById('progress-bar');
       if (bar && items.length) bar.style.width = (100 * bought / items.length) + '%';
       // The menu changed on another device: items were added or removed.
-      if (state.signature !== signature && !pending) location.reload();
+      // Not while someone is typing a new item into a section's form.
+      if (state.signature !== shopping.dataset.signature && !pending && !shopping.querySelector('.add-here-form:not([hidden])')) location.reload();
     };
 
     shopping.addEventListener('submit', async (event) => {
@@ -93,6 +93,16 @@
         pending--;
         li.classList.toggle('checked', !wanted);
       }
+    });
+
+    // A section's "+ Add item": opens a small form right there, for an item in that section.
+    shopping.addEventListener('click', (event) => {
+      const link = event.target.closest('.add-here-link, .add-here-cancel');
+      if (!link) return;
+      event.preventDefault();
+      const form = document.getElementById(link.dataset.add);
+      form.hidden = link.classList.contains('add-here-cancel') || !form.hidden;
+      if (!form.hidden) form.querySelector('input[name="extra-name"]').focus();
     });
 
     const poll = async () => {
@@ -121,10 +131,53 @@
         try { localStorage.setItem('chef-' + cls, on ? '1' : '0'); } catch (e) {}
       });
     };
-    viewToggle('hide-bought', 'hide-bought', ['Hide bought', 'Show bought']);
-    viewToggle('hide-uses', 'hide-uses', ['Hide meals', 'Show meals']);
-    // The item buttons: keep as a staple (pantry, freezer) or remove from the staples.
-    viewToggle('hide-buttons', 'hide-buttons', ['Hide buttons', 'Show buttons']);
+    const setupToggles = () => {
+      viewToggle('hide-bought', 'hide-bought', ['Hide bought', 'Show bought']);
+      viewToggle('hide-uses', 'hide-uses', ['Hide meals', 'Show meals']);
+      // The item buttons: keep as a staple (pantry, freezer), remove, remove this week.
+      viewToggle('hide-buttons', 'hide-buttons', ['Hide buttons', 'Show buttons']);
+    };
+    setupToggles();
+
+    // Adding and removing items without reloading: the form is sent in the background, and the list (and
+    // any message, e.g. the Undo bar) is replaced by the new one from the page the server answers with.
+    // If that fails, the form is simply sent the normal way.
+    const swap = (html) => {
+      const page = new DOMParser().parseFromString(html, 'text/html');
+      const fresh = page.getElementById('shopping');
+      if (!fresh) return false;
+      shopping.innerHTML = fresh.innerHTML;
+      shopping.dataset.signature = fresh.dataset.signature;
+      const main = document.querySelector('main');
+      main.querySelectorAll(':scope > .flash').forEach((flash) => flash.remove());
+      [...page.querySelectorAll('main > .flash')].reverse().forEach((flash) => main.prepend(flash));
+      setupToggles();
+      return true;
+    };
+
+    document.addEventListener('submit', async (event) => {
+      const form = event.target;
+      const bottomForm = form.closest('.add-extra');
+      if (event.defaultPrevented || form.classList.contains('toggle-form') || !(shopping.contains(form) || bottomForm)) return;
+      event.preventDefault();
+      const reopen = form.classList.contains('add-here-form') ? form.id : '';
+      pending++;  // no reload from the sync while this is on its way
+      try {
+        const response = await fetch(form.action, { method: 'POST', body: new FormData(form) });
+        if (!response.ok || !swap(await response.text())) throw new Error('not swapped');
+      } catch (e) {
+        form.submit();
+        return;
+      } finally {
+        pending--;
+      }
+      if (bottomForm) form.reset();
+      if (reopen) {
+        // Ready for the next item in the same section.
+        const again = document.getElementById(reopen);
+        if (again) { again.hidden = false; again.querySelector('input[name="extra-name"]').focus(); }
+      }
+    });
   }
 
   // --- Ingredients: add another empty row. ---

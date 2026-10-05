@@ -40,7 +40,8 @@ Phone screens with made-up demo data (all names and households are fictional).
   or planned with AI.
 - **Shopping** – the week's list, built from the menu's ingredients: merged across recipes, scaled to the
   portions planned, grouped by section, with the meals each item is for. Ticks sync between phones.
-  Items set to come **every week** (fruit, bread, snacks...) are added automatically. Staples go to "Check at home": **🫙 Always have it** (pantry and speciality items) and **❄️ Always in the
+  Items set to come **every week** (fruit, bread, snacks...) are added automatically; *Remove this week* leaves
+  one out for a single week. Staples go to "Check at home": **🫙 Always have it** (pantry and speciality items) and **❄️ Always in the
   freezer** (frozen items) add an item to the staples; these buttons can be hidden with *Hide buttons*,
   like *Hide meals* and *Hide bought*.
 - **Recipes** – the recipe binder: ★ favourites, recipes we found and want to try, and every dish cooked, with

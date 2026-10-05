@@ -10,7 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import User
-from meals.models import Dish, ExtraItem, Feedback, Household, MenuRequest, PlannedMeal, ShoppingCheck
+from meals.models import Dish, ExtraItem, Feedback, Household, MenuRequest, PlannedMeal, ShoppingCheck, WeeklyItem
 
 from . import mcp
 from .models import AuthorizationCode, Client, Connection
@@ -266,6 +266,11 @@ class MCPTests(OAuthMixin, TestCase):
         self.assertEqual(ShoppingCheck.objects.count(), 1)
 
         self.assertIn("Tick it as bought instead", self.call("remove_item", item="Mince", week="2026-10-05"))
+        WeeklyItem.objects.create(household=self.household, name="Fruit", category="vegetables")
+        skipped = self.call("remove_item", item="fruit", week="2026-10-05")
+        self.assertEqual((skipped["removed"], skipped["only_this_week"]), ("Fruit", True))
+        self.assertIn("isn't on the shopping list", self.call("tick_item", item="fruit", week="2026-10-05"))
+        self.assertEqual(self.call("tick_item", item="fruit", week="2026-10-12")["name"], "Fruit")
         self.assertEqual(self.call("remove_item", item=added["added"]["item"], week="2026-10-05")["removed"], "Oat milk")
         self.assertIn("isn't on the shopping list", self.call("tick_item", item="Caviar", week="2026-10-05"))
         self.assertIn("category must be one of", self.call("add_item", name="X", category="toys"))

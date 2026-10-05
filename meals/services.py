@@ -9,7 +9,7 @@ from django.db.models import Count, Max, Prefetch, Q
 from django.utils import timezone
 
 from . import schedule
-from .models import Dish, ExtraItem, FamilyMember, Feedback, PlannedMeal, RecipePhoto, ShoppingCheck
+from .models import Dish, ExtraItem, FamilyMember, Feedback, PlannedMeal, RecipePhoto, ShoppingCheck, WeeklySkip
 
 
 def week_start(day):
@@ -105,6 +105,15 @@ def remove_extra_item(extra):
     for old in ExtraItem.objects.filter(removed_at__lt=now - timedelta(days=1)):
         ShoppingCheck.objects.filter(household=old.household_id, week=old.week, key=f"extra-{old.pk}").delete()
         old.delete()
+
+
+def skip_weekly_item(item, week):
+    """Takes an every-week item off one week's list; it's back the week after."""
+    WeeklySkip.objects.get_or_create(item=item, week=week)
+
+
+def unskip_weekly_item(item, week):
+    WeeklySkip.objects.filter(item=item, week=week).delete()
 
 
 def set_bought(household, user, week, key, bought):

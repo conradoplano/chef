@@ -190,8 +190,9 @@ def build(household, week):
                  notes=[extra.note] if extra.note else [], extra=extra)
         )
 
-    # Weekly items, from the week they were added on.
-    for weekly in WeeklyItem.objects.filter(household=household, created_at__date__lt=week + timedelta(days=7)):
+    # Weekly items, from the week they were added on, unless taken off this week's list.
+    weekly_items = WeeklyItem.objects.filter(household=household, created_at__date__lt=week + timedelta(days=7))
+    for weekly in weekly_items.exclude(skips__week=week):
         items.append(
             Item(key=f"weekly-{weekly.pk}", name=weekly.name, category=weekly.category, quantity=weekly.quantity,
                  notes=[weekly.note] if weekly.note else [], weekly=weekly)

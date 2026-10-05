@@ -27,6 +27,15 @@
       </div>
     {% endif %}
 
+    {% if skipped %}
+      <div class="flash undo-bar">
+        <span>Removed <strong>{{ skipped.name }}</strong> from this week's list. It's back next week.</span>
+        <form method="post" action="{% url 'meals:weekly_unskip' start.isoformat skipped.pk %}" class="inline">
+          {% csrf_token %}<button type="submit" class="btn ghost small">Undo</button>
+        </form>
+      </div>
+    {% endif %}
+
     {% if missing %}
       <div class="flash missing">
         <strong>No ingredients yet</strong> for
@@ -38,7 +47,17 @@
 
     {% for section in sections %}
       <section class="card shop-section">
-        <h3>{{ section.label }}</h3>
+        <div class="shop-section-head">
+          <h3>{{ section.label }}</h3>
+          <a class="add-here-link" href="?add={{ section.category }}#add-{{ section.category }}" data-add="add-{{ section.category }}">+ Add item</a>
+        </div>
+        <form method="post" action="{% url 'meals:extra_add' start.isoformat %}" class="add-here-form" id="add-{{ section.category }}"{% if add != section.category %} hidden{% endif %}>
+          {% csrf_token %}<input type="hidden" name="extra-category" value="{{ section.category }}">
+          <input type="text" name="extra-name" maxlength="100" required placeholder="Item" aria-label="Item to add to {{ section.label }}">
+          <input type="text" name="extra-quantity" maxlength="50" placeholder="Quantity" aria-label="Quantity">
+          <button type="submit" class="small">Add</button>
+          <a class="link small add-here-cancel" href="{{ request.path }}" data-add="add-{{ section.category }}">Cancel</a>
+        </form>
         <ul class="shop-items">
           {% for item in section.items %}{% include "meals/_shop_item.html" %}{% endfor %}
         </ul>

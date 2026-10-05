@@ -10,7 +10,7 @@ from django.views.decorators.http import require_POST
 from .. import services
 from .. import shopping as shopping_list
 from ..forms import ExtraItemForm
-from ..models import ExtraItem
+from ..models import ExtraItem, WeeklyItem
 from .common import parse_date, safe_next, week_context, week_start
 
 
@@ -27,10 +27,16 @@ def shopping(request, day=None):
         bought=sum(i.checked for i in items),
         signature=shopping_list.signature(sections, at_home),
         extra_form=ExtraItemForm(prefix="extra"),
+        add=request.GET.get("add", ""),  # a section's "+ Add item" form, opened without JavaScript
         removed=ExtraItem.objects.filter(
             household=request.household,
             pk=request.GET.get("removed") if request.GET.get("removed", "").isdigit() else None,
             removed_at__isnull=False,
+        ).first(),
+        skipped=WeeklyItem.objects.filter(
+            household=request.household,
+            pk=request.GET.get("skipped") if request.GET.get("skipped", "").isdigit() else None,
+            skips__week=context["start"],
         ).first(),
     )
     return render(request, "meals/shopping.html", context)
@@ -114,3 +120,24 @@ def extra_restore(request, pk):
     extra.save(update_fields=["removed_at"])
     messages.success(request, f"{extra} is back on the list.")
     return redirect("meals:shopping_of", day=extra.week.isoformat())
+
+
+@login_required
+@require_POST
+def weekly_skip(request, day, pk):
+    """Takes an every-week item off this week's list only."""
+    week = week_start(parse_date(day))
+    item = get_object_or_404(WeeklyItem, pk=pk, household=request.household)
+    services.skip_weekly_item(item, week)
+    url = reverse("meals:shopping_of", args=[week.isoformat()])
+    return redirect(f"{url}?{urlencode({'skipped': item.pk})}")
+
+
+@login_required
+@require_POST
+def weekly_unskip(request, day, pk):
+    week = week_start(parse_date(day))
+    item = get_object_or_404(WeeklyItem, pk=pk, household=request.household)
+    services.unskip_weekly_item(item, week)
+    messages.success(request, f"{item} is back on this week's list.")
+    return redirect("meals:shopping_of", day=week.isoformat())

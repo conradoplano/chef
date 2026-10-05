@@ -485,12 +485,34 @@ class ShoppingListTests(TestCase):
         page = self.client.get(reverse("meals:shopping_of", args=["2026-09-28"]))
         self.assertContains(page, "🧀 Dairy &amp; eggs")
         self.assertContains(page, '<span class="qty">2 l</span>')
+        # "Extra" is a grey chip with the meals; Remove is a button on the buttons line ("Hide buttons" hides it).
+        item = page.content.decode()
+        item = item[item.index(f'data-key="extra-{extra.pk}"'):]
+        item = item[:item.index("</li>")]
+        self.assertIn('<span class="badge use">Extra</span>', item)
+        tools = item[item.index('class="item-tools"'):]
+        self.assertIn('class="badge pantry-btn" aria-label="Remove Milk from the list">✕ Remove</button>', tools)
+        self.assertEqual(item.count("Remove"), 2)  # the label and the button text: only one button
         self.client.post(
             reverse("meals:shopping_toggle", args=["2026-09-28"]), {"key": f"extra-{extra.pk}", "checked": "1"}
         )
         response = self.client.post(reverse("meals:extra_delete", args=[extra.pk]))
         self.assertRedirects(response, reverse("meals:shopping_of", args=["2026-09-28"]) + f"?removed={extra.pk}")
         self.assertNotIn("Milk", [i.name for s in shopping.build(home(), self.week)[0] for i in s.items])
+
+    def test_add_item_in_a_section(self):
+        ExtraItem.objects.create(household=home(), week=self.week, name="Milk", category="dairy")
+        url = reverse("meals:shopping_of", args=["2026-09-28"])
+        page = self.client.get(url)
+        self.assertContains(page, 'href="?add=dairy#add-dairy" data-add="add-dairy">+ Add item</a>')
+        self.assertContains(page, 'class="add-here-form" id="add-dairy" hidden>')
+        self.assertContains(page, "+ Add an item")  # the form at the bottom stays
+        # Without JavaScript the link opens the section's form.
+        self.assertContains(self.client.get(url + "?add=dairy"), 'class="add-here-form" id="add-dairy">')
+        self.client.post(reverse("meals:extra_add", args=["2026-09-28"]),
+                         {"extra-category": "dairy", "extra-name": "Butter", "extra-quantity": "250 g"})
+        butter = ExtraItem.objects.get(name="Butter")
+        self.assertEqual((butter.category, butter.quantity, butter.week), ("dairy", "250 g", self.week))
 
     def test_undo_remove_extra_item(self):
         extra = ExtraItem.objects.create(household=home(), week=self.week, name="Milk", category="dairy")

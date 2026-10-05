@@ -297,15 +297,17 @@ def add_item(context, args):
 
 
 @tool("remove_item", "Remove from the shopping list",
-      "Removes an item that was added by hand (add_item or in the app). Items for planned meals or bought every week "
-      "can't be removed on their own: tick them as bought instead, or remove the meal.",
+      "Removes an item that was added by hand (add_item or in the app), or takes an every-week item off this week's "
+      "list only (it's back the week after). Items for planned meals can't be removed on their own: tick them as "
+      "bought instead, or remove the meal.",
       {"item": {"type": "string", "description": "The item key from get_shopping_list, or the item's name."}, "week": WEEK},
       required=("item",), destructive=True)
 def remove_item(context, args):
     start = week_of(args)
     item = find_item(context, args, start)
     if item.weekly:
-        raise ToolError(f"{item.name} is on the list every week (a setting in Chef). Tick it as bought instead.")
+        services.skip_weekly_item(item.weekly, start)
+        return {"removed": item.name, "week_start": start.isoformat(), "only_this_week": True}
     if not item.extra:
         raise ToolError(f"{item.name} is needed for " + ", ".join(u.label for u in item.uses)
                         + ". Tick it as bought instead, or remove the meal.")

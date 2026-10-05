@@ -26,6 +26,8 @@ from .shopping import (
     extra_add,
     extra_delete,
     extra_restore,
+    weekly_skip,
+    weekly_unskip,
     shopping,
     shopping_state,
     shopping_toggle,
@@ -40,5 +42,5 @@ __all__ = [
     "shopping_toggle", "usual_week", "recipes", "recipe", "recipe_edit", "recipe_status",
     "recipe_photo_new", "recipe_import_view", "recipe_import_retry", "recipe_import_status", "recipe_photo_file",
     "recipe_photo_add", "recipe_photo_delete", "recipe_import_discard", "recipe_add", "recipe_link_new", "staple_add", "staple_remove", "weekly_item_add", "weekly_item_delete", "meal_pick",
-    "manage", "manage_household", "household_rename", "person_invite", "person_remove",
+    "weekly_skip", "weekly_unskip", "manage", "manage_household", "household_rename", "person_invite", "person_remove",
 ]

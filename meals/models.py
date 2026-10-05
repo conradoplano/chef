@@ -493,3 +493,16 @@ class AIUsage(models.Model):
 
     def __str__(self):
         return f"{self.get_kind_display()} for {self.household}: ${self.cost}"
+
+
+class WeeklySkip(models.Model):
+    """An every-week item taken off one week's shopping list (e.g. we're away); it's back the week after."""
+
+    item = models.ForeignKey(WeeklyItem, on_delete=models.CASCADE, related_name="skips")
+    week = models.DateField(help_text="Monday of the week.")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["item", "week"], name="unique_weekly_skip")]
+
+    def __str__(self):
+        return f"{self.item} not in the week of {self.week}"

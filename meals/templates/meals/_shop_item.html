@@ -26,17 +26,20 @@
         {% endif %}
       {% endfor %}
       {% if item.weekly %}<span class="badge use">Every week</span>{% endif %}
-      {% if item.extra %}
-        <span class="badge use extra-badge">Extra</span>
-        <form method="post" action="{% url 'meals:extra_delete' item.extra.pk %}" class="inline">
-          {% csrf_token %}<button type="submit" class="link small danger" aria-label="Remove {{ item.name }}">Remove</button>
-        </form>
-      {% endif %}
+      {% if item.extra %}<span class="badge use">Extra</span>{% endif %}
     </div>
   {% endif %}
-  {% if at_home_item or item.can_be_staple %}
+  {% if at_home_item or item.can_be_staple or item.extra or item.weekly %}
     <div class="item-tools">
-      {% if at_home_item %}
+      {% if item.extra %}
+        <form method="post" action="{% url 'meals:extra_delete' item.extra.pk %}" class="inline">
+          {% csrf_token %}<button type="submit" class="badge pantry-btn" aria-label="Remove {{ item.name }} from the list">✕ Remove</button>
+        </form>
+      {% elif item.weekly %}
+        <form method="post" action="{% url 'meals:weekly_skip' start.isoformat item.weekly.pk %}" class="inline">
+          {% csrf_token %}<button type="submit" class="badge pantry-btn" aria-label="Remove {{ item.name }} from this week's list">✕ Remove this week</button>
+        </form>
+      {% elif at_home_item %}
         <form method="post" action="{% url 'meals:staple_remove' %}?next={{ request.path|urlencode }}" class="inline">
           {% csrf_token %}<input type="hidden" name="list" value="{{ item.staple_list }}"><input type="hidden" name="name" value="{{ item.staple_name }}">
           <button type="submit" class="badge pantry-btn" title="We don't always have {{ item.staple_name }}">✕ Remove from {{ item.staple_list }}</button>

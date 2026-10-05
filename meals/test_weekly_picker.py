@@ -52,6 +52,29 @@ class WeeklyItemTests(TestCase):
         self.assertContains(page, '<span class="badge use">Every week</span>')
         self.assertNotContains(page, "Skip this week")
 
+    def test_remove_this_week_only_and_undo(self):
+        item = WeeklyItem.objects.create(household=home(), name="Fruit", quantity="3 kg", category="vegetables")
+        url = reverse("meals:shopping_of", args=[WEEK.isoformat()])
+        page = self.client.get(url).content.decode()
+        line = page[page.index(f'data-key="weekly-{item.pk}"'):]
+        line = line[:line.index("</li>")]
+        self.assertIn("✕ Remove this week</button>", line[line.index('class="item-tools"'):])  # hidden with the buttons
+
+        response = self.client.post(reverse("meals:weekly_skip", args=["2026-10-07", item.pk]), follow=True)
+        self.assertRedirects(response, f"{url}?skipped={item.pk}")
+        self.assertContains(response, "Removed <strong>Fruit</strong> from this week")
+        self.assertNotIn("Fruit", self._items(WEEK))
+        self.assertIn("Fruit", self._items(WEEK + timedelta(weeks=1)))  # back next week
+        self.assertTrue(WeeklyItem.objects.filter(pk=item.pk).exists())
+
+        response = self.client.post(reverse("meals:weekly_unskip", args=[WEEK.isoformat(), item.pk]), follow=True)
+        self.assertContains(response, "Fruit is back on this week")
+        self.assertIn("Fruit", self._items(WEEK))
+
+    def test_remove_this_week_only_for_our_household(self):
+        theirs = WeeklyItem.objects.create(household=User.objects.create_user(email="sam@example.com").household, name="Bread")
+        self.assertEqual(self.client.post(reverse("meals:weekly_skip", args=[WEEK.isoformat(), theirs.pk])).status_code, 404)
+
     def test_tick_and_never_a_staple(self):
         item = WeeklyItem.objects.create(household=home(), name="Pasta", category="pantry")
         household = home()

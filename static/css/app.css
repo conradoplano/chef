@@ -286,8 +286,6 @@ button.qf[aria-pressed=true] { filter: none; opacity: 1; background: var(--accen
 }
 .badge.use .use-name { overflow: hidden; text-overflow: ellipsis; }
 a.badge.use:hover { color: var(--fg); }
-.badge.extra-badge { background: var(--saffron-soft); color: var(--saffron); }
-.uses .link.small { font-size: .7rem; }
 .shop-item.checked .check { background: var(--herb); border-color: var(--herb); }
 .shop-item.checked .check::after { content: "✓"; color: #fff; font-size: .7rem; font-weight: 700; }
 .shop-item.checked .item-name, .shop-item.checked .qty { text-decoration: line-through; color: var(--muted); }
@@ -446,3 +444,10 @@ button.small:not(.link) { min-height: 2rem; padding: .25rem .75rem; font-size: .
 .limit-form input { width: 5.5rem; min-height: 2rem; padding: .2rem .4rem; }
 table.kv.models td { text-align: left; white-space: nowrap; padding-left: 0; padding-right: .75rem; }
 .copy-url { display: block; overflow-wrap: anywhere; padding: .5rem .75rem; background: var(--accent-soft); border-radius: var(--radius); user-select: all; }
+
+/* A section's "+ Add item" and its small form. */
+.shop-section-head { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
+.add-here-link { font-size: .8rem; font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; }
+.add-here-form { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .4rem; margin: .3rem 0 .5rem; }
+.add-here-form input[name="extra-name"] { flex: 2 1 7rem; min-width: 0; }
+.add-here-form input[name="extra-quantity"] { flex: 1 1 4.5rem; min-width: 0; }
