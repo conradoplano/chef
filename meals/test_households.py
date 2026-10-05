@@ -402,3 +402,29 @@ class AdminPageTests(TestCase):
         self.assertContains(self._act(self.admin.household, action="suspend"), "your own household")
         self.admin.household.refresh_from_db()
         self.assertTrue(self.admin.household.is_active)
+
+
+class PriceMissingCostsMigrationTests(TestCase):
+    """0022 fills in costs recorded as missing because the model had no price yet."""
+
+    def test_fills_in_known_models_only(self):
+        from importlib import import_module
+
+        from django.apps import apps
+
+        household = User.objects.create_user(email="pat@example.com").household
+        tokens = {"input_tokens": 1_000_000, "output_tokens": 100_000, "web_searches": 2}
+        missing = AIUsage.objects.create(household=household, kind="menu", model="gpt-5.4-2026-03-05", cost=0, **tokens)
+        unknown = AIUsage.objects.create(household=household, kind="menu", model="gpt-9", cost=0, **tokens)
+        priced = AIUsage.objects.create(household=household, kind="recipe", model="gpt-5.4", cost=Decimal("0.0100"), **tokens)
+        request = MenuRequest.objects.create(household=household, week=WEEK, slots=[], model="gpt-5.4", **tokens)
+
+        import_module("meals.migrations.0022_price_missing_ai_costs").price_missing_costs(apps, None)
+
+        # 1M input at $2.50 + 100k output at $15.00 + 2 searches at $0.01
+        for row in (missing, request):
+            row.refresh_from_db()
+            self.assertEqual(row.cost, Decimal("4.0200"))
+        unknown.refresh_from_db()
+        priced.refresh_from_db()
+        self.assertEqual((unknown.cost, priced.cost), (Decimal("0"), Decimal("0.0100")))
