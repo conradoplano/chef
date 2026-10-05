@@ -327,6 +327,22 @@ class BudgetTests(TestCase):
         self.assertFalse(RecipeImport.objects.exists())
         self.assertEqual(AIUsage.objects.filter(household=self.household, kind="recipe").count(), 2)
 
+    def test_prices_for_dated_model_versions(self):
+        self.assertEqual(planner.prices_for("gpt-5.4-mini-2026-03-17"), planner.PRICES["gpt-5.4-mini"])
+        self.assertEqual(planner.prices_for(" GPT-6.1-sol "), planner.PRICES["gpt-6.1-sol"])
+        self.assertIsNone(planner.prices_for("gpt-5.4"))
+        usage = {"input": 1_000_000, "output": 0, "searches": 1}
+        self.assertEqual(planner.cost("gpt-5.4-mini-2026-03-17", usage), Decimal("0.7600"))
+
+    def test_ledger_has_the_model_that_answered(self):
+        answer = reply(tool_call({"summary": "", "meals": [meal("2026-10-05", "dinner", "Soup")]}))
+        answer.model = "gpt-5.4-mini-2026-03-17"
+        with mock.patch.object(planner, "start", side_effect=lambda r: planner.run(r.pk)),                 mock.patch.object(planner, "link_works", return_value=True),                 mock.patch.object(planner, "get_client", return_value=FakeOpenAI(answer)):
+            self.client.post(reverse("meals:menu_create", args=[WEEK.isoformat()]), {"2026-10-05-dinner-on": "on"})
+        entry = AIUsage.objects.get()
+        self.assertEqual(entry.model, "gpt-5.4-mini-2026-03-17")
+        self.assertGreater(entry.cost, 0)
+
     def test_usage_on_the_settings_page(self):
         self._spend("0.12")
         page = self.client.get(reverse("meals:family"))
@@ -373,6 +389,10 @@ class AdminPageTests(TestCase):
         self._act(self.lees, action="reactivate")
         self.lees.refresh_from_db()
         self.assertTrue(self.lees.is_active)
+
+    def test_calls_without_a_price_are_flagged(self):
+        AIUsage.objects.create(household=self.lees, kind="menu", model="gpt-9", input_tokens=5000, cost=0)
+        self.assertContains(self.client.get(reverse("meals:manage")), "1 call with the model “gpt-9” has no price, so it counts as $0")
 
     def test_not_your_own_household(self):
         self.assertContains(self._act(self.admin.household, action="suspend"), "your own household")

@@ -326,7 +326,9 @@ def response_usage(response):
 def add_usage(totals, job, kind, response):
     """Adds a response to the job's totals and writes it to the ledger (also when the job fails later)."""
     usage = response_usage(response)
-    budget.record(job, kind, settings.AI_MODEL, usage)
+    # The model that answered, e.g. "gpt-5.4-mini-2026-03-17"; the setting if the response doesn't say.
+    model = getattr(response, "model", None)
+    budget.record(job, kind, model if isinstance(model, str) and model else settings.AI_MODEL, usage)
     for key, value in usage.items():
         totals[key] += value
 
@@ -523,9 +525,19 @@ def save_menu(request, data):
     return saved
 
 
+def prices_for(model):
+    """(input, output) USD per million tokens. Also finds dated versions ("gpt-5.4-mini-2026-03-17")."""
+    model = (model or "").strip().lower()
+    if model in PRICES:
+        return PRICES[model]
+    known = [name for name in PRICES if model.startswith(name + "-")]
+    return PRICES[max(known, key=len)] if known else None
+
+
 def cost(model, usage):
-    prices = PRICES.get(model)
+    prices = prices_for(model)
     if not prices:
+        logger.warning("No price known for AI model %r; its cost is recorded as 0. Add it to PRICES.", model)
         return None
     tokens = (usage["input"] * prices[0] + usage["output"] * prices[1]) / Decimal(1_000_000)
     return (tokens + usage["searches"] * WEB_SEARCH_PRICE).quantize(Decimal("0.0001"))

@@ -8,6 +8,9 @@
 
   <section class="card">
     <h3>✨ AI costs</h3>
+    {% for row in unpriced %}
+      <div class="flash error small">{{ row.calls }} call{{ row.calls|pluralize }} with the model “{{ row.model|default:"unknown" }}” {{ row.calls|pluralize:"has,have" }} no price, so {{ row.calls|pluralize:"it counts,they count" }} as $0. Add the model to <code>PRICES</code> in <code>meals/planner.py</code>.</div>
+    {% endfor %}
     <table class="kv small">
       <tr><td class="muted">Today</td><td>${{ today|floatformat:2 }} of ${{ global_limit|floatformat:2 }} for everyone</td></tr>
       <tr><td class="muted">This month</td><td>${{ month|floatformat:2 }}</td></tr>

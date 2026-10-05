@@ -55,6 +55,8 @@ def manage(request):
         "total": budget.spent(),
         "global_limit": settings.AI_GLOBAL_DAILY_LIMIT_USD,
         "default_limit": settings.AI_DAILY_LIMIT_USD,
+        # Calls whose model has no price: they count as $0 against the limits.
+        "unpriced": AIUsage.objects.filter(cost=0, input_tokens__gt=0).values("model").annotate(calls=Count("pk")),
     })
 
 
