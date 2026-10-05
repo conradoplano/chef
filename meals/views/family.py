@@ -9,6 +9,9 @@ from django.views.decorators.http import require_POST
 from .. import budget, schedule
 from .. import shopping as shopping_list
 from ..forms import FamilyMemberForm, HouseholdForm, HouseholdNameForm, InviteForm, RuleForm, WeeklyItemForm
+from connect.models import Connection
+from connect.oauth import mcp_url
+
 from ..models import FamilyMember, Rule, WeeklyItem
 
 
@@ -39,6 +42,8 @@ def family(request):
                 "today": budget.spent(budget.today_start(), household=household),
                 "month": budget.spent(budget.month_start(), household=household),
             },
+            "connections": Connection.objects.filter(user__household=household).select_related("client", "user"),
+            "mcp_url": mcp_url(request),
             "members": members,
             "usual_week": schedule.summary(schedule.usual_week(household, members), members),
             "rules": Rule.objects.filter(household=household),

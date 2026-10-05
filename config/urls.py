@@ -6,4 +6,5 @@ urlpatterns = [
     path("accounts/", include("accounts.urls")),
     path("", include("core.urls")),
     path("", include("meals.urls")),
+    path("", include("connect.urls")),
 ]

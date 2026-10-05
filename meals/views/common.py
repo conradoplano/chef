@@ -9,6 +9,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 
 from .. import planner
 from ..models import Feedback, MenuRequest, PlannedMeal
+from ..services import week_start
 
 
 def parse_date(value):
@@ -16,10 +17,6 @@ def parse_date(value):
         return date.fromisoformat(value)
     except (TypeError, ValueError):
         raise Http404("Invalid date")
-
-
-def week_start(day):
-    return day - timedelta(days=day.weekday())
 
 
 WEEK_SESSION_KEY = "selected_week"
@@ -81,31 +78,6 @@ def days_with_meals(household, start, end, today):
         by_date.setdefault(meal.date, []).append(meal)
     return [{"date": start + timedelta(days=i), "meals": by_date.get(start + timedelta(days=i), [])}
             for i in range((end - start).days + 1)]
-
-
-def leftovers_after(meal):
-    """Later meals this week that are leftovers of a cooked meal; they go wherever the meal goes."""
-    if meal.leftovers:
-        return []
-    return list(
-        PlannedMeal.objects.filter(
-            household=meal.household_id, dish=meal.dish, leftovers=True, date__gt=meal.date, date__lte=week_start(meal.date) + timedelta(days=6)
-        ).prefetch_related("eaters")
-    )
-
-
-def plan_dish(dish, day, slot, user, leftovers=False):
-    """Puts a dish on its household's menu, for the people who usually eat that meal."""
-    from .. import schedule
-    from ..models import FamilyMember
-
-    household = dish.household
-    meal = PlannedMeal.objects.create(
-        household=household, date=day, slot=slot, dish=dish, leftovers=leftovers, updated_by=user
-    )
-    members = list(FamilyMember.objects.filter(household=household))
-    meal.eaters.set(schedule.usual_week(household, members)[day.weekday()][slot]["eaters"])
-    return meal
 
 
 def parse_plan(value):

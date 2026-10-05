@@ -104,6 +104,28 @@ shopping list follows. See `meals/planner.py`.
   requests); every call's cost is in AI usage. Daily limits: see [Households](#households).
   A request has 12 minutes; after 15 it counts as stalled and saves nothing.
 
+## Assistants (Claude, ChatGPT...)
+
+Chef is an MCP server, so an assistant that supports MCP connectors can use a household's menus, shopping
+list and recipes ("add oat milk to this week's list", "what's for dinner on Thursday?", "plan the lasagne
+for Saturday").
+
+- **Connect:** Settings → 🤖 Assistants shows the address, e.g. `https://chef.example.com/mcp`. In Claude:
+  Settings → Connectors → Add custom connector (on claude.ai or the desktop app; it's then available on the
+  phone too), paste the address, Connect. The assistant opens Chef: log in with the emailed code and allow it.
+  The client ID / secret fields stay empty.
+- **Tools:** `get_week_menu`, `plan_meal`, `remove_meal`, `copy_week`, `get_shopping_list`, `add_item`,
+  `remove_item`, `tick_item`, `search_recipes`, `get_recipe`, `rate_meal` (`connect/tools.py`). They use the
+  same code as the web pages (`meals/services.py`) and only ever see the connected person's household.
+  Changes show up for everyone straight away; the assistant's own AI does the thinking, so it costs Chef nothing.
+- **OAuth 2.1** (`connect/oauth.py`): discovery through `/.well-known/oauth-protected-resource` and
+  `/.well-known/oauth-authorization-server`, dynamic client registration (`/oauth/register`, limited per IP;
+  unused registrations are removed after a day), authorization with PKCE (S256) and a consent page, access
+  tokens for an hour, refresh tokens for 60 days (replaced on every use), revocation. Only hashes of codes and
+  tokens are stored. Redirect addresses must be https (or http on localhost).
+- **Disconnect** an assistant in Settings → 🤖 Assistants (anyone in the household can). A suspended household's
+  assistants stop working. Each connection may make 120 calls a minute.
+
 ## Login
 
 There are no passwords. A user enters their email and gets a six-digit code (valid 10 minutes).
@@ -187,6 +209,8 @@ environment variables in the NAS project and never in git.
     `manage.py` (admin page), shared helpers in `common.py`
   - `planner.py` – prompt, OpenAI call, link checks and saving the menu; `notify.py` – emails
   - `budget.py` – the AI cost ledger and daily limits
+  - `services.py` – changes and lookups shared by the web pages and the assistant tools
+- `connect/` – assistants: the MCP endpoint (`mcp.py`), its tools (`tools.py`) and OAuth (`oauth.py`)
   - `recipe_import.py` – reading recipes from photos; `photos.py` – scaling and cleaning photos
   - `shopping.py` – building the list; `schedule.py` – the usual week and the meals grid
 - `core/` – health check, web app manifest, service worker

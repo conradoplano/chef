@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Connect {{ app_name }} · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <div class="card narrow">
+    <h2>Connect {{ app_name }}?</h2>
+    <p><strong>{{ app_name }}</strong> wants to use {{ site_name }} for <strong>{{ request.household }}</strong>, as {{ user.get_full_name }}. It will be able to:</p>
+    <ul class="small">
+      <li>see the menus, the shopping lists and your recipes</li>
+      <li>plan, copy and remove meals, and rate meals you've eaten</li>
+      <li>add, tick off and remove shopping list items</li>
+    </ul>
+    <p class="muted small">Everyone in your household sees what it changes. You can disconnect it at any time in Settings. It returns to <strong>{{ redirect_host }}</strong>.</p>
+    <form method="post" class="stack">
+      {% csrf_token %}
+      <button class="wide" type="submit" name="allow" value="1">Allow</button>
+      <button class="wide ghost" type="submit" name="deny" value="1">Cancel</button>
+    </form>
+  </div>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block title %}Can't connect · {{ site_name }}{% endblock %}
+
+{% block content %}
+  <div class="card narrow">
+    <h2>Can't connect this app</h2>
+    <p class="muted">The app's request isn't valid (unknown app or return address). Try adding {{ site_name }} to it again.</p>
+  </div>
+{% endblock %}

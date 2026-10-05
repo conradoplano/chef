@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "accounts",
     "core",
     "meals",
+    "connect",
 ]
 
 SITE_NAME = os.environ.get("SITE_NAME", "Chef")

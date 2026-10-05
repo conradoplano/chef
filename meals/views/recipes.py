@@ -10,7 +10,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Count, Max, Prefetch, Q
+from django.db.models import Q
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -19,9 +19,10 @@ from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
 from .. import budget, photos, recipe_import
+from ..services import plan_dish, search_recipes, with_history
 from ..forms import UNITS, AddToMenuForm, IngredientForm, RecipeForm
-from ..models import Dish, Feedback, Ingredient, PlannedMeal, RecipeImport, RecipePhoto
-from .common import parse_date, parse_plan, plan_dish, safe_next
+from ..models import Dish, Ingredient, PlannedMeal, RecipeImport, RecipePhoto
+from .common import parse_date, parse_plan, safe_next
 from .menu import ingredient_names
 
 FILTERS = [
@@ -29,22 +30,6 @@ FILTERS = [
     ("try", "Want to try", Q(status=Dish.Status.TRY)),
     ("all", "All dishes", Q()),
 ]
-
-
-def with_history(dishes):
-    """Adds times cooked, last cooked and the latest feedback to each dish."""
-    dishes = list(
-        dishes.prefetch_related(Prefetch("photos", queryset=RecipePhoto.objects.only("pk", "dish"))).annotate(
-            cooked=Count("planned", filter=Q(planned__leftovers=False)),
-            last_cooked=Max("planned__date", filter=Q(planned__leftovers=False, planned__date__lte=timezone.localdate())),
-        )
-    )
-    latest = {}
-    for review in Feedback.objects.filter(meal__dish__in=dishes).select_related("meal").order_by("meal__date"):
-        latest[review.meal.dish_id] = review
-    for dish in dishes:
-        dish.latest_feedback = latest.get(dish.pk)
-    return dishes
 
 
 @login_required
@@ -403,11 +388,6 @@ def recipe_import_discard(request, pk):
 # --- choosing a recipe for a day ---------------------------------------------------------
 
 
-def search_text(dish):
-    parts = [dish.name, dish.notes, dish.source, dish.get_kind_display(), *(i.name for i in dish.ingredients.all())]
-    return " ".join(parts).lower()
-
-
 @login_required
 def meal_pick(request):
     """The day's "+ Add": choose a recipe we have (or leftovers), or add a new one."""
@@ -438,11 +418,7 @@ def meal_pick(request):
         slot = PlannedMeal.Slot.LUNCH if PlannedMeal.Slot.DINNER in planned and PlannedMeal.Slot.LUNCH not in planned else PlannedMeal.Slot.DINNER
     query = " ".join(request.GET.get("q", "").split()).lower()
 
-    dishes = with_history(Dish.objects.filter(household=household).prefetch_related("ingredients"))
-    for dish in dishes:
-        dish.search = search_text(dish)
-    if query:
-        dishes = [d for d in dishes if all(word in d.search for word in query.split())]
+    dishes = search_recipes(household, query)
     groups = [
         ("★ Favourites", sorted([d for d in dishes if d.status == Dish.Status.FAVOURITE], key=lambda d: d.name.lower())),
         ("Want to try", sorted([d for d in dishes if d.status == Dish.Status.TRY], key=lambda d: d.name.lower())),

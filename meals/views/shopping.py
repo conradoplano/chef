@@ -1,18 +1,16 @@
 """The week's shopping list: ticking items off (synced between phones) and extra items."""
-from datetime import timedelta
-
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils import timezone
 from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
+from .. import services
 from .. import shopping as shopping_list
 from ..forms import ExtraItemForm
-from ..models import ExtraItem, ShoppingCheck
+from ..models import ExtraItem
 from .common import parse_date, safe_next, week_context, week_start
 
 
@@ -52,12 +50,7 @@ def shopping_toggle(request, day):
     household = request.household
     key = request.POST.get("key", "")[:120]
     if key:
-        if request.POST.get("checked") == "1":
-            ShoppingCheck.objects.update_or_create(
-                household=household, week=week, key=key, defaults={"checked_by": request.user}
-            )
-        else:
-            ShoppingCheck.objects.filter(household=household, week=week, key=key).delete()
+        services.set_bought(household, request.user, week, key, request.POST.get("checked") == "1")
     if request.headers.get("X-Requested-With") == "fetch":
         return JsonResponse(shopping_list.state(household, week))
     return redirect("meals:shopping_of", day=week.isoformat())
@@ -96,11 +89,7 @@ def extra_add(request, day):
     week = week_start(parse_date(day))
     form = ExtraItemForm(request.POST, prefix="extra")
     if form.is_valid():
-        extra = form.save(commit=False)
-        extra.week = week
-        extra.household = request.household
-        extra.created_by = request.user
-        extra.save()
+        extra = services.add_extra_item(request.household, request.user, week, **form.cleaned_data)
         messages.success(request, f"Added {extra}.")
     else:
         messages.error(request, "Enter a name for the item.")
@@ -112,12 +101,7 @@ def extra_add(request, day):
 def extra_delete(request, pk):
     """Hides the item; it can be brought back with Undo until it is purged a day later."""
     extra = get_object_or_404(ExtraItem, pk=pk, household=request.household, removed_at=None)
-    now = timezone.now()
-    extra.removed_at = now
-    extra.save(update_fields=["removed_at"])
-    for old in ExtraItem.objects.filter(removed_at__lt=now - timedelta(days=1)):
-        ShoppingCheck.objects.filter(household=old.household_id, week=old.week, key=f"extra-{old.pk}").delete()
-        old.delete()
+    services.remove_extra_item(extra)
     url = reverse("meals:shopping_of", args=[extra.week.isoformat()])
     return redirect(f"{url}?{urlencode({'removed': extra.pk})}")
 

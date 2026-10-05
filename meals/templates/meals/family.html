@@ -182,6 +182,28 @@
     {% endif %}
   </section>
 
+  <section class="card" id="assistants">
+    <h3>🤖 Assistants</h3>
+    <p class="muted small">Use {{ site_name }} from Claude, ChatGPT or another assistant that supports MCP: add a custom connector with this address, then log in and allow it.</p>
+    <p><code class="copy-url">{{ mcp_url }}</code></p>
+    <p class="muted small">It can read menus, shopping lists and recipes, plan, copy and remove meals, rate meals, and add, tick off and remove shopping items.</p>
+    {% if connections %}
+      <ul class="plain-list people">
+        {% for c in connections %}
+          <li class="line">
+            <span>
+              <strong>{{ c.client }}</strong>
+              <br><span class="muted small">{{ c.user.get_short_name }} · connected {{ c.created_at|date:"j M Y" }}{% if c.last_used_at %} · last used {{ c.last_used_at|timesince }} ago{% endif %}</span>
+            </span>
+            <form method="post" action="{% url 'connect:connection_remove' c.pk %}" class="inline" data-confirm="Disconnect {{ c.client }}?">
+              {% csrf_token %}<button type="submit" class="link small danger">Disconnect</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </section>
+
   {% if user.is_staff %}
     <section class="card">
       <div class="line section-head">

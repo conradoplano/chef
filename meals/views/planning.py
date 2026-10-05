@@ -10,7 +10,8 @@ from django.utils import timezone
 
 from .. import budget, planner, schedule
 from ..models import FamilyMember, MenuRequest, PlannedMeal
-from .common import leftovers_after, parse_date, running_request, week_start
+from ..services import leftovers_after
+from .common import parse_date, running_request, week_start
 
 
 @login_required

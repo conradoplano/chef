@@ -11,14 +11,14 @@ from django.utils import timezone
 from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
-from .. import planner
+from .. import planner, services
+from ..services import leftovers_after
 from ..forms import DishServingsForm, FeedbackForm, IngredientFormSet, PlannedMealForm, UNITS
 from ..models import Dish, Feedback, Ingredient, MenuRequest, PlannedMeal, RecipeImport
 from .common import (
     back_to,
     back_url,
     days_with_meals,
-    leftovers_after,
     parse_date,
     planned_meals,
     safe_next,
@@ -82,10 +82,9 @@ def meal_edit(request, pk=None):
     meal = get_object_or_404(PlannedMeal.objects.select_related("dish"), pk=pk, household=household) if pk else None
     leftovers = leftovers_after(meal) if meal else []
     if request.method == "POST" and meal and "delete" in request.POST:
-        meal.delete()
+        leftovers = services.remove_meal(meal, with_leftovers=request.POST.get("with_leftovers") == "on")
         removed = f"Removed {meal.dish} from {meal.date:%a %d.%m.}"
-        if leftovers and request.POST.get("with_leftovers") == "on":
-            PlannedMeal.objects.filter(pk__in=[m.pk for m in leftovers]).delete()
+        if leftovers:
             removed += f" and its leftovers ({', '.join(f'{m.date:%a} {m.get_slot_display().lower()}' for m in leftovers)})"
         messages.success(request, removed + ".")
         return back_to(request, meal.date)
@@ -145,17 +144,10 @@ def feedback_quick(request, pk):
     rating = request.POST.get("rating", "")
     if rating not in Feedback.Rating.values:
         raise Http404("Unknown rating")
-    review = Feedback.objects.filter(meal=meal).first() or Feedback(meal=meal)
-    if review.pk and review.shared_rating == rating:
+    review = Feedback.objects.filter(meal=meal).first()
+    if review and review.shared_rating == rating:
         rating = ""
-    review.kids = review.parents = rating
-    review.updated_by = request.user
-    promoted = False
-    if rating or review.reaction or review.notes:
-        review.save()
-        promoted = meal.dish.learn_from(review)
-    elif review.pk:
-        review.delete()
+    _, promoted = services.save_feedback(meal, request.user, kids=rating, parents=rating)
     if request.headers.get("X-Requested-With") == "fetch":
         return JsonResponse({"rating": rating, "favourite": promoted})
     return redirect(f"{back_url(request, meal.date)}#meal-{meal.pk}")
@@ -186,20 +178,7 @@ def menu_copy(request, day):
     meals = PlannedMeal.objects.filter(household=request.household)
     if request.method == "POST":
         source = week_start(parse_date(request.POST.get("source")))
-        taken = {(m.date, m.slot) for m in meals.filter(date__range=(start, start + timedelta(days=6)))}
-        copied = skipped = 0
-        offset = start - source
-        for meal in meals.filter(date__range=(source, source + timedelta(days=6))).prefetch_related("eaters"):
-            target = meal.date + offset
-            if (target, meal.slot) in taken:
-                skipped += 1
-                continue
-            copy = PlannedMeal.objects.create(
-                household=request.household, date=target, slot=meal.slot, dish_id=meal.dish_id, leftovers=meal.leftovers, note=meal.note,
-                servings=meal.servings, updated_by=request.user,
-            )
-            copy.eaters.set(meal.eaters.all())
-            copied += 1
+        copied, skipped = services.copy_week(request.household, request.user, source, start)
         text = f"Copied {copied} meal{'s' if copied != 1 else ''} from the week of {source.day} {source:%b}"
         if skipped:
             text += f" ({skipped} skipped – already planned)"
