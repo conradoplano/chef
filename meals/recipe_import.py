@@ -1,6 +1,6 @@
 """
 Reads a recipe with AI, from photos (a magazine page, a cookbook, a handwritten card)
-or from a web page.
+or from a web page - or writes one from an idea, asking a few questions first if needed.
 
 Runs in a background thread like menu planning. For a web page, the app downloads it
 and passes on the recipe data most recipe sites embed (schema.org), or else the page's
@@ -26,8 +26,8 @@ from django.conf import settings
 from django.db import close_old_connections
 from django.utils import timezone
 
-from . import planner
-from .models import AIUsage, Category, Dish, RecipeImport
+from . import planner, shopping
+from .models import AIUsage, Category, Dish, FamilyMember, RecipeImport
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,60 @@ SAVE_RECIPE_TOOL = {
         },
     },
 }
+
+
+IDEA_PROMPT = """You write recipes for a family's meal planning app from an idea someone had, e.g. in the supermarket ("pork gyros in pita with cucumber and cherry tomatoes, with ready-made gyros meat from the counter").
+
+- Write a simple, practical recipe that does what the idea says: use what they mention (including ready-made or shop-bought parts), and add only what's needed to make it a good meal.
+- Write it for the number of portions you're given, for the family described. Respect allergies and "won't eat" strictly; avoid dislikes. Things they usually have at home may be used freely.
+- Call ask_questions (one to three short questions) when the recipe depends on something only they know - e.g. "whatever is in the fridge" (what is?), "the meat we bought" (which?) - or when the idea leaves out something that would change the recipe a lot, like whether it's a main meal or a side. When the idea is clear enough, don't ask: assume sensibly. Never ask about portions or things you can decide yourself.
+- Otherwise call save_recipe. Write in English. Ingredients: one entry each with quantity and unit (metric, or pcs), shop section, and a note like "ready-made, from the counter" where it helps; check is always false. Instructions: numbered steps, one per line, without the numbers. minutes: the total time. source and online_url: empty. notes: one or two sentences, e.g. tips or what could be varied."""
+
+ASK_QUESTIONS_TOOL = {
+    "type": "function",
+    "name": "ask_questions",
+    "description": "Ask the person a few short questions before writing the recipe. Only when the answers would change the recipe a lot.",
+    "strict": True,
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["questions"],
+        "properties": {"questions": {"type": "array", "items": {"type": "string"}, "description": "One to three short questions."}},
+    },
+}
+MAX_QUESTIONS = 3
+
+
+def portions(household):
+    """A recipe from an idea is for everyone in the family (4 when no one is entered)."""
+    return FamilyMember.objects.filter(household=household).count() or 4
+
+
+def idea_content(job):
+    """What the model gets for an idea: the idea, the family, what they have at home, and any answers."""
+    household = job.household
+    today = timezone.localdate()
+    lines = [f"The idea: {job.idea.strip()}", "", f"Write it for {portions(household)} portions (servings)."]
+    members = list(FamilyMember.objects.filter(household=household))
+    if members:
+        lines.append("The family:")
+        for m in members:
+            age = m.age(today)
+            details = [f"{label}: {value}" for label, value in [
+                ("dislikes", m.dislikes), ("won't eat", m.avoid), ("ALLERGIES", m.allergies)] if value.strip()]
+            lines.append(f"- {m.name} ({m.get_kind_display().lower()}{f', {age}' if age is not None else ''})"
+                         + (f": {'; '.join(details)}" if details else ""))
+    for label, items in [("Usually at home", shopping.staple_items(household, "pantry")),
+                         ("In the freezer", shopping.staple_items(household, "freezer"))]:
+        if items:
+            lines.append(f"{label}: {', '.join(items)}")
+    if household.equipment.strip():
+        lines.append(f"Cooking equipment: {' '.join(household.equipment.split())}")
+    if job.questions:
+        lines += ["", "You asked, and they answered:"]
+        lines += [f"- {a['question']} {a['answer'] or '(no answer: decide yourself)'}" for a in job.answers]
+        lines.append("Now write the recipe with save_recipe.")
+    return [{"type": "input_text", "text": "\n".join(lines)}]
 
 
 def photo_input(photo):
@@ -205,8 +259,11 @@ def photo_content(photos):
 # --- reading -------------------------------------------------------------------------
 
 
-def ask_model(content, job):
-    """Returns (parsed arguments, usage totals)."""
+def ask_model(content, job, instructions=SYSTEM_PROMPT, tools=None):
+    """Runs the request until the model calls one of the function tools.
+    Returns (function name, parsed arguments, usage totals)."""
+    tools = tools or [planner.web_search_tool(job.household), SAVE_RECIPE_TOOL]
+    names = {t["name"] for t in tools if t["type"] == "function"}
     client = planner.get_client()
     usage = {"input": 0, "output": 0, "searches": 0}
     previous_id, next_input = None, [{"role": "user", "content": content}]
@@ -217,25 +274,25 @@ def ask_model(content, job):
             break
         response = client.with_options(timeout=remaining).responses.create(
             model=settings.AI_MODEL,
-            instructions=SYSTEM_PROMPT,
+            instructions=instructions,
             input=next_input,
-            tools=[planner.web_search_tool(job.household), SAVE_RECIPE_TOOL],
+            tools=tools,
             tool_choice="auto",
             reasoning={"effort": settings.AI_EFFORT},
             max_output_tokens=32000,
             **({"previous_response_id": previous_id} if previous_id else {}),
         )
         planner.add_usage(usage, job, AIUsage.Kind.RECIPE, response)
-        call = next((i for i in response.output if i.type == "function_call" and i.name == "save_recipe"), None)
+        call = next((i for i in response.output if i.type == "function_call" and i.name in names), None)
         if call is not None:
             try:
-                return json.loads(call.arguments), usage
+                return call.name, json.loads(call.arguments), usage
             except json.JSONDecodeError:
                 raise planner.PlanningError("The AI's answer couldn't be read. Please try again.")
         if response.status == "incomplete":
             raise planner.PlanningError("The AI stopped before finishing. Please try again.")
         if any(part.type == "refusal" for item in response.output if item.type == "message" for part in item.content):
-            raise planner.PlanningError("The AI declined to read these photos.")
+            raise planner.PlanningError("The AI declined this recipe." if job.idea else "The AI declined to read these photos.")
         previous_id = response.id
         next_input = [{"role": "user", "content": "Please call save_recipe with the recipe now."}]
     raise planner.PlanningError("The AI didn't return a recipe. Please try again.")
@@ -275,23 +332,39 @@ def tidy(data, page_url=""):
 
 
 def run(import_id):
-    """Reads the photos of a RecipeImport. Safe to run in a thread."""
+    """Reads the recipe of a RecipeImport (photos, page) or writes it from the idea. Safe to run in a thread."""
     try:
         job = RecipeImport.objects.select_related("household").get(pk=import_id)
         job.status = RecipeImport.Status.RUNNING
         job.model = settings.AI_MODEL
         job.save(update_fields=["status", "model"])
         try:
-            if job.url:
-                content = page_content(job.url)
+            if job.idea:
+                # Questions are asked at most once; with the answers, the recipe is written.
+                tools = [SAVE_RECIPE_TOOL] if job.questions else [ASK_QUESTIONS_TOOL, SAVE_RECIPE_TOOL]
+                name, data, usage = ask_model(idea_content(job), job, IDEA_PROMPT, tools)
+            elif job.url:
+                name, data, usage = ask_model(page_content(job.url), job)
             else:
                 photos = list(job.photos.all())
                 if not photos:
                     raise planner.PlanningError("There are no photos to read.")
-                content = photo_content(photos)
-            data, usage = ask_model(content, job)
-            job.input_tokens, job.output_tokens, job.web_searches = usage["input"], usage["output"], usage["searches"]
-            job.cost = planner.cost(job.model, usage)
+                name, data, usage = ask_model(photo_content(photos), job)
+            # Totals over all rounds (questions, then the recipe; or retries).
+            job.input_tokens += usage["input"]
+            job.output_tokens += usage["output"]
+            job.web_searches += usage["searches"]
+            job.cost = planner.cost(job.model, {"input": job.input_tokens, "output": job.output_tokens, "searches": job.web_searches})
+            questions = [" ".join(str(q).split())[:300] for q in data.get("questions", []) if str(q).strip()][:MAX_QUESTIONS]
+            if name == "ask_questions" and questions:
+                job.questions, job.status = questions, RecipeImport.Status.QUESTIONS
+                job.finished_at = timezone.now()
+                job.save()
+                return
+            if name != "save_recipe":
+                raise planner.PlanningError("The AI didn't return a recipe. Please try again.")
+            if job.idea:
+                data = {**data, "is_recipe": True, "online_url": "", "source": ""}
             if not data.get("is_recipe", True):
                 raise planner.PlanningError(
                     "No recipe was found on that page." if job.url else "These photos don't seem to show a recipe."

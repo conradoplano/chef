@@ -1,5 +1,6 @@
 """Helpers shared by the views: weeks, meal cards, leftovers and safe redirects."""
 from datetime import date, timedelta
+from typing import NamedTuple
 
 from django.http import Http404
 from django.shortcuts import redirect
@@ -80,14 +81,36 @@ def days_with_meals(household, start, end, today):
             for i in range((end - start).days + 1)]
 
 
+class Plan(NamedTuple):
+    """Where a new recipe goes once it's saved: a day's lunch or dinner, maybe instead of a meal (its id).
+    Carried through adding a recipe as "2026-10-06:dinner" or "2026-10-06:dinner:42"."""
+
+    day: date
+    slot: str
+    replace: int | None = None
+
+    def __str__(self):
+        return f"{self.day.isoformat()}:{self.slot}" + (f":{self.replace}" if self.replace else "")
+
+
 def parse_plan(value):
-    """"2026-10-06:dinner" -> (date, slot), or None. Carries "add it to this day" through adding a recipe."""
-    day, _, slot = (value or "").partition(":")
+    """A Plan from its text, or None."""
+    day, _, rest = (value or "").partition(":")
+    slot, _, replace = rest.partition(":")
     try:
         day = date.fromisoformat(day)
     except ValueError:
         return None
-    return (day, slot) if slot in PlannedMeal.Slot.values else None
+    if slot not in PlannedMeal.Slot.values:
+        return None
+    return Plan(day, slot, int(replace) if replace.isdigit() else None)
+
+
+def planned_text(meal):
+    """ "planned it for Wed dinner", or "it replaces Tacos on Wed dinner" (after services.plan_dish)."""
+    when = f"{meal.date:%a} {meal.get_slot_display().lower()}"
+    replaced = getattr(meal, "replaced", None)
+    return f"it replaces {replaced} on {when}" if replaced else f"planned it for {when}"
 
 
 def safe_next(request):

@@ -241,32 +241,25 @@ class MenuCardTests(TestCase):
         self.assertContains(response, f'href="{reverse("meals:meal", args=[meal.pk])}" aria-label="Change this meal"')
         self.assertContains(response, "+ Add", count=7)
 
-    def test_card_top_links_to_recipe(self):
-        PlannedMeal.objects.create(household=home(), date=self.today, dish=self.dish)
+    def test_card_top_opens_the_meal_and_only_the_badge_the_website(self):
+        meal = PlannedMeal.objects.create(household=home(), date=self.today, dish=self.dish)
         response = self._menu(self.today)
-        self.assertContains(
-            response,
-            '<a class="meal-link" href="https://www.bbcgoodfood.com/recipes/pie" target="_blank" rel="noopener">'
-            "🥩 Shepherd&#x27;s pie</a>",
-            html=False,
-        )
+        self.assertContains(response, f'<a class="meal-link" href="{reverse("meals:meal_recipe", args=[meal.pk])}">'
+                                      "🥩 Shepherd&#x27;s pie</a>")
+        self.assertContains(response, '<a class="badge source" href="https://www.bbcgoodfood.com/recipes/pie" target="_blank"')
 
-    def test_no_card_link_without_recipe(self):
-        PlannedMeal.objects.create(household=home(), date=self.today, dish=Dish.objects.create(household=home(), name="Pizza"))
-        self.assertNotContains(self._menu(self.today), "meal-link")
+    def test_card_without_recipe_also_opens_the_meal(self):
+        meal = PlannedMeal.objects.create(household=home(), date=self.today, dish=Dish.objects.create(household=home(), name="Pizza"))
+        self.assertContains(self._menu(self.today), f'<a class="meal-link" href="{reverse("meals:meal_recipe", args=[meal.pk])}">')
 
     def test_leftovers_show_no_cooking_instead_of_time(self):
         PlannedMeal.objects.create(household=home(), date=self.today, slot="lunch", dish=self.dish, leftovers=True)
         response = self._menu(self.today)
         self.assertContains(response, "Leftovers – no cooking needed")
         self.assertNotContains(response, "75 min")
-        # Leftovers still link to the recipe.
-        self.assertContains(response, "BBC Good Food ↗")
-        self.assertContains(
-            response,
-            '<a class="meal-link" href="https://www.bbcgoodfood.com/recipes/pie" target="_blank" rel="noopener">'
-            "🥩 Leftover shepherd&#x27;s pie</a>",
-        )
+        # Leftovers still open the meal, and the badge the recipe.
+        self.assertContains(response, "BBC Good Food ↗</a>")
+        self.assertContains(response, "🥩 Leftover shepherd&#x27;s pie</a>")
 
     def test_feedback_button_only_for_eaten_cooked_meals(self):
         past = PlannedMeal.objects.create(household=home(), date=self.today - timedelta(days=1), dish=self.dish)

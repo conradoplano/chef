@@ -3,19 +3,32 @@
 {% block title %}Replace dish · {{ site_name }}{% endblock %}
 
 {% block content %}
+  <p class="small"><a href="{{ back }}">‹ Menu</a></p>
   <h2>↻ Replace dish</h2>
   <p class="muted">{{ meal.dish.icon }} {% if meal.leftovers %}Leftover {{ meal.dish.name|lower }}{% else %}{{ meal.dish.name }}{% endif %} · {{ meal.get_slot_display|lower }} on {{ meal.date|date:"l j M" }}</p>
-  {% if ai_blocked %}
-    <div class="flash error">{{ ai_blocked }}</div>
-  {% endif %}
-  <form method="post" class="card stack">
-    {% csrf_token %}
-    <div class="field">
-      <label for="reason">Why do you want to replace it?</label>
-      <textarea id="reason" name="reason" rows="3" autofocus placeholder="E.g. we had something similar last week, Laura isn't keen on mushrooms, we need something quicker on Thursday"></textarea>
-      <p class="muted small">A new dish is suggested for this meal; the rest of the week stays as it is.</p>
-    </div>
-    <button class="wide" type="submit"{% if ai_blocked %} disabled{% endif %}>↻ Find another dish</button>
-  </form>
-  <p class="center"><a href="{% url 'meals:menu_of' meal.date.isoformat %}">Cancel</a></p>
+  <p class="muted small">Whatever you choose takes this meal's place, for the same people; the rest of the week stays as it is.</p>
+
+  <a class="card add-way add-manual" href="{{ pick_url }}">
+    <span><h3>📖 Pick from your recipes</h3><span class="muted small">Favourites, recipes to try, everything you've cooked – or leftovers.</span></span>
+    <span aria-hidden="true">›</span>
+  </a>
+
+  <a class="card add-way add-manual" href="{{ new_url }}">
+    <span><h3>➕ Add a new recipe</h3><span class="muted small">From an idea, a link, photos, or typed in.</span></span>
+    <span aria-hidden="true">›</span>
+  </a>
+
+  <section class="card add-way">
+    <h3>✨ Let AI find one</h3>
+    {% if ai_blocked %}<p class="small warn">{{ ai_blocked }}</p>{% endif %}
+    <form method="post" class="stack">
+      {% csrf_token %}
+      <div class="field">
+        <label for="reason">Why do you want to replace it?</label>
+        <textarea id="reason" name="reason" rows="3" placeholder="E.g. we had something similar last week, the kids aren't keen on mushrooms, we need something quicker on Thursday"></textarea>
+        <p class="muted small">A new dish is suggested that fits the rest of the week.</p>
+      </div>
+      <button class="wide" type="submit"{% if ai_blocked %} disabled{% endif %}>↻ Find another dish</button>
+    </form>
+  </section>
 {% endblock %}

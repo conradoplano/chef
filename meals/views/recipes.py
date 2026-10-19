@@ -2,6 +2,7 @@
 from a link, photos or by hand."""
 import re
 from datetime import timedelta
+from decimal import Decimal
 from urllib.parse import urlsplit
 
 from django import forms
@@ -19,10 +20,11 @@ from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
 from .. import budget, photos, recipe_import
+from .. import shopping as shopping_list
 from ..services import plan_dish, search_recipes, with_history
 from ..forms import UNITS, AddToMenuForm, IngredientForm, RecipeForm
 from ..models import Dish, Ingredient, PlannedMeal, RecipeImport, RecipePhoto
-from .common import parse_date, parse_plan, safe_next
+from .common import Plan, parse_date, parse_plan, planned_text, safe_next, week_start
 from .menu import ingredient_names
 
 FILTERS = [
@@ -54,28 +56,55 @@ def recipes(request):
     })
 
 
+def recipe_context(dish_pk):
+    """What the recipe page shows: the recipe with its history, ingredients and photos."""
+    [dish] = with_history(Dish.objects.filter(pk=dish_pk))
+    history = (
+        PlannedMeal.objects.filter(dish=dish, leftovers=False).select_related("feedback").order_by("-date")[:20]
+    )
+    for meal in history:
+        meal.review = getattr(meal, "feedback", None)
+    return {
+        "dish": dish,
+        "history": history,
+        "ingredients": list(dish.ingredients.all()),
+        "statuses": list(reversed(Dish.Status.choices)),  # Favourite, Want to try, Not in the binder
+    }
+
+
 @login_required
 def recipe(request, pk):
-    get_object_or_404(Dish, pk=pk, household=request.household)
-    [dish] = with_history(Dish.objects.filter(pk=pk))
+    dish = get_object_or_404(Dish, pk=pk, household=request.household)
     form = AddToMenuForm(request.POST or None, initial={"date": timezone.localdate()})
     if request.method == "POST" and form.is_valid():
         day, slot = form.cleaned_data["date"], form.cleaned_data["slot"]
         meal = plan_dish(dish, day, slot, request.user)
         messages.success(request, f"Added {dish} to {day:%a %d.%m.} ({meal.get_slot_display().lower()}).")
         return redirect("meals:menu_of", day=day.isoformat())
-    history = (
-        PlannedMeal.objects.filter(dish=dish, leftovers=False).select_related("feedback").order_by("-date")[:20]
+    return render(request, "meals/recipe.html", {**recipe_context(dish.pk), "form": form})
+
+
+@login_required
+def meal_recipe(request, pk):
+    """A meal on the menu: its recipe (ingredients for the portions planned, method, photos) and the meal
+    itself - when, who eats, notes and feedback."""
+    meal = get_object_or_404(
+        PlannedMeal.objects.select_related("dish", "feedback").prefetch_related("eaters"), pk=pk, household=request.household
     )
-    for meal in history:
-        meal.review = getattr(meal, "feedback", None)
-    return render(request, "meals/recipe.html", {
-        "dish": dish,
-        "form": form,
-        "history": history,
-        "ingredients": dish.ingredients.all(),
-        "statuses": list(reversed(Dish.Status.choices)),  # Favourite, Want to try, Not in the binder
-    })
+    context = recipe_context(meal.dish_id)
+    dish, today = context["dish"], timezone.localdate()
+    meal.review = getattr(meal, "feedback", None)
+    meal.can_review = meal.date <= today and not meal.leftovers
+    meal.can_replace = meal.date >= today
+    # Quantities for the portions planned, as on the shopping list.
+    if meal.servings and dish.servings and meal.servings != dish.servings and not meal.leftovers:
+        factor = Decimal(meal.servings) / Decimal(dish.servings)
+        for ingredient in context["ingredients"]:
+            if ingredient.quantity is not None:
+                ingredient.amount = shopping_list.format_quantities({ingredient.unit: ingredient.quantity * factor}, False)
+    back = safe_next(request) or reverse("meals:menu_of", args=[week_start(meal.date).isoformat()]) + f"#meal-{meal.pk}"
+    return render(request, "meals/recipe.html", {**context, "meal": meal, "back": back,
+                                                 "portions": meal.servings or dish.servings})
 
 
 @login_required
@@ -102,10 +131,9 @@ def recipe_edit(request, pk=None):
             plan = parse_plan(request.GET.get("plan"))
             after = reverse("meals:recipe", args=[dish.pk])
             if plan:
-                meal = plan_dish(dish, *plan, request.user)
-                after = safe_next(request) or reverse("meals:menu_of", args=[plan[0].isoformat()])
-                messages.success(request, f"Saved {dish} and planned it for {meal.date:%a} {meal.get_slot_display().lower()}. "
-                                          "Add its ingredients so it's on the shopping list.")
+                meal = plan_dish(dish, plan.day, plan.slot, request.user, replace=plan.replace)
+                after = safe_next(request) or reverse("meals:menu_of", args=[plan.day.isoformat()])
+                messages.success(request, f"Saved {dish} and {planned_text(meal)}. Add its ingredients so it's on the shopping list.")
             else:
                 messages.success(request, f"Saved {dish}. Add its ingredients so it's ready for the shopping list.")
             url = reverse("meals:ingredients", args=[dish.pk])
@@ -176,14 +204,16 @@ def shared_url(request):
 
 @login_required
 def recipe_add(request):
-    """Three ways to add a recipe: from a link, from photos, or typed in."""
+    """Four ways to add a recipe: from an idea, a link, photos, or typed in."""
     plan = parse_plan(request.GET.get("plan"))
     return render(request, "meals/recipe_add.html", {
         "ai_blocked": budget.blocked(request.household),
         "url": shared_url(request),
-        "plan": plan and f"{plan[0].isoformat()}:{plan[1]}",
-        "plan_day": plan and plan[0],
-        "plan_slot": plan and PlannedMeal.Slot(plan[1]).label.lower(),
+        "plan": plan and str(plan),
+        "plan_day": plan and plan.day,
+        "plan_slot": plan and PlannedMeal.Slot(plan.slot).label.lower(),
+        "replacing": plan and plan.replace and PlannedMeal.objects.filter(
+            household=request.household, pk=plan.replace).select_related("dish").first(),
         "next": safe_next(request),
     })
 
@@ -192,7 +222,7 @@ def start_import(request, **fields):
     """A RecipeImport that remembers the day it was started from, if any."""
     plan = parse_plan(request.POST.get("plan"))
     if plan:
-        fields.update(plan_date=plan[0], plan_slot=plan[1], plan_next=safe_next(request)[:300])
+        fields.update(plan_date=plan.day, plan_slot=plan.slot, plan_replace=plan.replace, plan_next=safe_next(request)[:300])
     return RecipeImport.objects.create(household=request.household, created_by=request.user, **fields)
 
 
@@ -225,9 +255,9 @@ def recipe_link_new(request):
     )
     plan = parse_plan(request.POST.get("plan"))
     if known and plan:
-        meal = plan_dish(known, *plan, request.user)
-        messages.success(request, f"That recipe is already in your binder: planned {known} for {meal.date:%a} {meal.get_slot_display().lower()}.")
-        return redirect(safe_next(request) or reverse("meals:menu_of", args=[plan[0].isoformat()]))
+        meal = plan_dish(known, plan.day, plan.slot, request.user, replace=plan.replace)
+        messages.success(request, f"That recipe is already in your binder: {known}; {planned_text(meal)}.")
+        return redirect(safe_next(request) or reverse("meals:menu_of", args=[plan.day.isoformat()]))
     if known:
         messages.info(request, f"That recipe is already in your binder: {known}.")
         return redirect("meals:recipe", pk=known.pk)
@@ -239,6 +269,24 @@ def recipe_link_new(request):
         messages.error(request, blocked)
         return back_to_add(request)
     job = start_import(request, url=url)
+    recipe_import.start(job)
+    return redirect("meals:recipe_import", pk=job.pk)
+
+
+@login_required
+@require_POST
+def recipe_idea_new(request):
+    """A recipe written by AI from an idea, e.g. something seen in the supermarket. It may ask a few
+    questions first; the recipe is then checked like one read from photos."""
+    idea = " ".join(request.POST.get("idea", "").split())
+    if len(idea) < 3:
+        messages.error(request, "Describe what you have in mind, e.g. “pork gyros in pita with cucumber and cherry tomatoes”.")
+        return back_to_add(request)
+    blocked = budget.blocked(request.household)
+    if blocked:
+        messages.error(request, blocked)
+        return back_to_add(request)
+    job = start_import(request, idea=idea[:1000])
     recipe_import.start(job)
     return redirect("meals:recipe_import", pk=job.pk)
 
@@ -285,6 +333,9 @@ def recipe_import_view(request, pk):
         return redirect("meals:recipe", pk=job.dish.pk)
     manual = request.GET.get("manual") == "1"
     context = {"job": job, "photos": job.photos.all(), "manual": manual}
+    if job.status == RecipeImport.Status.QUESTIONS and not manual:
+        context["questions"] = [(i, q) for i, q in enumerate(job.questions)]
+        return render(request, "meals/recipe_import.html", context)
     if not job.finished or (job.status == RecipeImport.Status.FAILED and not manual):
         return render(request, "meals/recipe_import.html", context)
 
@@ -307,9 +358,9 @@ def recipe_import_view(request, pk):
             job.photos.update(dish=dish)
             job.dish, job.status = dish, RecipeImport.Status.SAVED
             job.save(update_fields=["dish", "status"])
-            meal = plan_dish(dish, job.plan_date, job.plan_slot, request.user) if job.plan_date else None
+            meal = plan_dish(dish, job.plan_date, job.plan_slot, request.user, replace=job.plan_replace) if job.plan_date else None
         if meal:
-            messages.success(request, f"Saved {dish} and planned it for {meal.date:%a} {meal.get_slot_display().lower()}.")
+            messages.success(request, f"Saved {dish} and {planned_text(meal)}.")
             return redirect(job.plan_next or reverse("meals:menu_of", args=[meal.date.isoformat()]))
         messages.success(request, f"Saved {dish}.")
         return redirect("meals:recipe", pk=dish.pk)
@@ -327,11 +378,32 @@ def recipe_import_view(request, pk):
 @require_POST
 def recipe_import_retry(request, pk):
     job = get_object_or_404(RecipeImport, pk=pk, household=request.household, status=RecipeImport.Status.FAILED)
+    return continue_import(request, job)
+
+
+def continue_import(request, job):
+    """Runs the import again (after a failure, or with the answers to its questions)."""
+    blocked = budget.blocked(request.household)
+    if blocked:
+        messages.error(request, blocked)
+        return redirect("meals:recipe_import", pk=job.pk)
     job.status, job.error = RecipeImport.Status.PENDING, ""
-    job.save(update_fields=["status", "error"])
+    job.save(update_fields=["status", "error", "answers"])
     RecipeImport.objects.filter(pk=job.pk).update(created_at=timezone.now())  # a fresh time budget
     recipe_import.start(job)
     return redirect("meals:recipe_import", pk=job.pk)
+
+
+@login_required
+@require_POST
+def recipe_import_answer(request, pk):
+    """The answers to the AI's questions about an idea; empty answers leave it to the AI."""
+    job = get_object_or_404(RecipeImport, pk=pk, household=request.household, status=RecipeImport.Status.QUESTIONS)
+    job.answers = [
+        {"question": question, "answer": " ".join(request.POST.get(f"answer-{i}", "").split())[:500]}
+        for i, question in enumerate(job.questions)
+    ]
+    return continue_import(request, job)
 
 
 @login_required
@@ -400,30 +472,41 @@ def recipe_import_discard(request, pk):
 
 @login_required
 def meal_pick(request):
-    """The day's "+ Add": choose a recipe we have (or leftovers), or add a new one."""
-    day = parse_date(request.GET.get("date") or request.POST.get("date"))
+    """The day's "+ Add": choose a recipe we have (or leftovers), or add a new one. With ?replace=<meal id>
+    (from ↻ on a meal), the choice takes that meal's place instead."""
     household = request.household
+    replacing = None
+    replace_id = request.GET.get("replace") or request.POST.get("replace") or ""
+    if replace_id.isdigit():
+        replacing = get_object_or_404(PlannedMeal.objects.select_related("dish"), pk=replace_id, household=household)
+    day = replacing.date if replacing else parse_date(request.GET.get("date") or request.POST.get("date"))
     back = safe_next(request) or reverse("meals:menu_of", args=[day.isoformat()])
     if request.method == "POST":
         slot = request.POST.get("slot") if request.POST.get("slot") in PlannedMeal.Slot.values else PlannedMeal.Slot.DINNER
+        if replacing:
+            slot = replacing.slot
         if "new" in request.POST:
-            return redirect(reverse("meals:recipe_add") + "?" + urlencode({"plan": f"{day.isoformat()}:{slot}", "next": back}))
+            plan = Plan(day, slot, replacing.pk if replacing else None)
+            return redirect(reverse("meals:recipe_add") + "?" + urlencode({"plan": str(plan), "next": back}))
+        replace = replacing.pk if replacing else None
         if request.POST.get("leftover"):
             cooked = get_object_or_404(PlannedMeal, pk=request.POST["leftover"], household=household)
-            meal = plan_dish(cooked.dish, day, slot, request.user, leftovers=True)
+            meal = plan_dish(cooked.dish, day, slot, request.user, leftovers=True, replace=replace)
         elif request.POST.get("dish"):
-            meal = plan_dish(get_object_or_404(Dish, pk=request.POST["dish"], household=household), day, slot, request.user)
+            dish = get_object_or_404(Dish, pk=request.POST["dish"], household=household)
+            meal = plan_dish(dish, day, slot, request.user, replace=replace)
         else:  # Enter in the search box without JavaScript: search
-            return redirect(reverse("meals:meal_pick") + "?" + urlencode({"date": day.isoformat(), "slot": slot, "q": request.POST.get("q", ""), "next": back}))
-        when = f"{meal.date:%a} {meal.get_slot_display().lower()}"
+            params = {"date": day.isoformat(), "slot": slot, "q": request.POST.get("q", ""), "next": back}
+            return redirect(reverse("meals:meal_pick") + "?" + urlencode({**params, **({"replace": replace} if replace else {})}))
+        done = planned_text(meal)
         if not meal.leftovers and not meal.dish.ingredients.exists():
-            messages.success(request, f"Planned {meal.dish} for {when}. Add its ingredients so it's on the shopping list.")
+            messages.success(request, f"{meal.dish}: {done}. Add its ingredients so it's on the shopping list.")
             return redirect(reverse("meals:ingredients", args=[meal.dish.pk]) + "?" + urlencode({"next": back}))
-        messages.success(request, f"Planned {'leftover ' if meal.leftovers else ''}{meal.dish} for {when}.")
+        messages.success(request, f"{'Leftover ' if meal.leftovers else ''}{meal.dish}: {done}.")
         return redirect(back)
 
     planned = set(PlannedMeal.objects.filter(household=household, date=day).values_list("slot", flat=True))
-    slot = request.GET.get("slot")
+    slot = replacing.slot if replacing else request.GET.get("slot")
     if slot not in PlannedMeal.Slot.values:
         slot = PlannedMeal.Slot.LUNCH if PlannedMeal.Slot.DINNER in planned and PlannedMeal.Slot.LUNCH not in planned else PlannedMeal.Slot.DINNER
     query = " ".join(request.GET.get("q", "").split()).lower()
@@ -443,6 +526,7 @@ def meal_pick(request):
         "day": day,
         "slot": slot,
         "slots": PlannedMeal.Slot.choices,
+        "replacing": replacing,
         "groups": [(title, items) for title, items in groups if items],
         "leftovers": leftovers,
         "query": query,

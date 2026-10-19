@@ -5,10 +5,22 @@
 {% block content %}
   <p class="small"><a href="{% if next %}{{ next }}{% else %}{% url 'meals:recipes' %}{% endif %}">‹ {% if next %}Back{% else %}Recipes{% endif %}</a></p>
   <h2>Add a recipe</h2>
-  {% if plan %}<p class="muted">It will be planned for {{ plan_day|date:"l j M" }}, {{ plan_slot }}.</p>{% endif %}
+  {% if replacing %}<p class="muted">It will replace {{ replacing.dish.name }} on {{ plan_day|date:"l j M" }}, {{ plan_slot }}.</p>
+  {% elif plan %}<p class="muted">It will be planned for {{ plan_day|date:"l j M" }}, {{ plan_slot }}.</p>{% endif %}
   {% if ai_blocked %}
-    <div class="flash">Reading links and photos needs AI. {{ ai_blocked }} You can still type recipes in.</div>
+    <div class="flash">Ideas, links and photos need AI. {{ ai_blocked }} You can still type recipes in.</div>
   {% endif %}
+
+  <section class="card add-way">
+    <h3>💡 From an idea</h3>
+    <p class="muted small">Describe what you have in mind; a recipe for your family is written for you to check. It may ask a question or two first.</p>
+    <form method="post" action="{% url 'meals:recipe_idea_new' %}" class="stack add-idea">
+      {% csrf_token %}{% if plan %}<input type="hidden" name="plan" value="{{ plan }}"><input type="hidden" name="next" value="{{ next }}">{% endif %}
+      <textarea name="idea" rows="3" maxlength="1000" required aria-label="Your idea"
+                placeholder="E.g. pork gyros in pita bread with cucumber and cherry tomatoes – ready-made gyros meat from the counter"></textarea>
+      <button type="submit"{% if ai_blocked %} disabled{% endif %}>Create recipe</button>
+    </form>
+  </section>
 
   <section class="card add-way">
     <h3>🔗 From a link</h3>

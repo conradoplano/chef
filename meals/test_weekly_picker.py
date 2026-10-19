@@ -1,5 +1,6 @@
 """Weekly shopping items, and choosing a recipe for a day."""
 from datetime import date, timedelta
+from decimal import Decimal
 from unittest import mock
 
 from django.test import TestCase, override_settings
@@ -10,7 +11,7 @@ from accounts.models import User
 
 from . import planner, recipe_import, shopping
 from .models import Dish, FamilyMember, PlannedMeal, RecipeImport, ShoppingCheck, WeeklyItem
-from .testing import approve_ai, home
+from .testing import approve_ai, freeze_now, home
 from .test_planner import FakeOpenAI, reply
 from .test_photos import recipe_call
 
@@ -19,6 +20,7 @@ WEEK = date(2026, 10, 5)
 
 class WeeklyItemTests(TestCase):
     def setUp(self):
+        freeze_now(self, WEEK)
         self.client.force_login(User.objects.create_user(email="parent@example.com", name="Pat"))
 
     def _add(self, **data):
@@ -204,3 +206,110 @@ class PlannedRecipeFromLinkTests(TestCase):
         self.assertRedirects(response, "/week/2026-10-05/", fetch_redirect_response=False)
         self.assertEqual(PlannedMeal.objects.get().dish, dish)
         self.assertFalse(RecipeImport.objects.exists())
+
+
+class MealPageTests(TestCase):
+    """Opening a meal from the menu: its recipe, with the meal instead of "Add to a menu"."""
+
+    def setUp(self):
+        freeze_now(self, WEEK)
+        self.client.force_login(User.objects.create_user(email="parent@example.com"))
+        self.ana = FamilyMember.objects.create(household=home(), name="Ana")
+        self.dish = Dish.objects.create(household=home(), name="Lasagne", servings=4, instructions="Layer it.\nBake it.",
+                                        recipe_url="https://example.com/lasagne")
+        self.dish.ingredients.create(name="Mince", quantity=500, unit="g", category="meat")
+        self.dish.ingredients.create(name="Onions", quantity=Decimal("1.5"), unit="pcs", category="vegetables")
+        self.meal = PlannedMeal.objects.create(household=home(), date=WEEK + timedelta(days=2), dish=self.dish, servings=8,
+                                               note="Make extra for Saturday")
+        self.meal.eaters.set([self.ana])
+
+    def test_meal_with_its_recipe(self):
+        page = self.client.get(reverse("meals:meal_recipe", args=[self.meal.pk]))
+        self.assertContains(page, "<h3>Wednesday 7 Oct · Dinner</h3>")
+        self.assertContains(page, "<td>Ana</td>")
+        self.assertContains(page, "Make extra for Saturday")
+        self.assertNotContains(page, "Add to a menu")
+        # Ingredients for the 8 portions planned (the recipe is for 4), as on the shopping list.
+        self.assertContains(page, 'Ingredients <span class="muted small">for 8</span>')
+        self.assertContains(page, 'Mince <span class="qty">1 kg</span>')
+        self.assertContains(page, 'Onions <span class="qty">3 pcs</span>')
+        self.assertContains(page, "Bake it.")
+        self.assertContains(page, '<a class="badge source" href="https://example.com/lasagne"')
+        self.assertContains(page, f'href="{reverse("meals:meal_replace", args=[self.meal.pk])}"')  # not eaten yet
+        self.assertContains(page, f'href="/week/2026-10-05/#meal-{self.meal.pk}">‹ Menu')
+        # The binder page stays as it was.
+        self.assertContains(self.client.get(reverse("meals:recipe", args=[self.dish.pk])), "Add to a menu")
+
+    def test_only_our_meals(self):
+        other = User.objects.create_user(email="sam@example.com").household
+        theirs = PlannedMeal.objects.create(household=other, date=WEEK, dish=Dish.objects.create(household=other, name="Stew"))
+        self.assertEqual(self.client.get(reverse("meals:meal_recipe", args=[theirs.pk])).status_code, 404)
+
+
+class ReplaceMealTests(TestCase):
+    """↻ on a meal: a recipe we have, a new one, or AI - each takes the meal's place."""
+
+    def setUp(self):
+        freeze_now(self, WEEK)
+        self.user = User.objects.create_user(email="parent@example.com")
+        self.client.force_login(self.user)
+        self.ana = FamilyMember.objects.create(household=home(), name="Ana")
+        FamilyMember.objects.create(household=home(), name="Ben")
+        self.tacos = Dish.objects.create(household=home(), name="Tacos")
+        self.curry = Dish.objects.create(household=home(), name="Curry", status="favourite")
+        self.curry.ingredients.create(name="Rice", quantity=300, unit="g", category="pantry")
+        self.meal = PlannedMeal.objects.create(household=home(), date=WEEK + timedelta(days=1), dish=self.tacos, servings=6)
+        self.meal.eaters.set([self.ana])  # only Ana that day
+        self.leftover = PlannedMeal.objects.create(household=home(), date=WEEK + timedelta(days=3), slot="lunch",
+                                                   dish=self.tacos, leftovers=True)
+
+    def test_three_ways_offered(self):
+        page = self.client.get(reverse("meals:meal_replace", args=[self.meal.pk]))
+        self.assertContains(page, f'href="/meal/pick/?replace={self.meal.pk}&amp;next=%2Fweek%2F2026-10-05%2F%23meal-{self.meal.pk}"')
+        self.assertContains(page, f'href="/recipes/add/?plan=2026-10-06%3Adinner%3A{self.meal.pk}&amp;next=')
+        self.assertContains(page, "↻ Find another dish")
+
+    def test_pick_from_the_recipes(self):
+        page = self.client.get(reverse("meals:meal_pick") + f"?replace={self.meal.pk}&next=/week/2026-10-05/")
+        self.assertContains(page, "<h2>Replace Tacos</h2>")
+        self.assertNotContains(page, 'name="slot" value="lunch"')  # it stays the same meal
+        response = self.client.post(reverse("meals:meal_pick"),
+                                    {"replace": self.meal.pk, "dish": self.curry.pk, "next": "/week/2026-10-05/"}, follow=True)
+        self.assertContains(response, "Curry: it replaces Tacos on Tue dinner.")
+        self.meal.refresh_from_db()
+        self.assertEqual((self.meal.dish, self.meal.date, self.meal.slot, self.meal.servings),
+                         (self.curry, WEEK + timedelta(days=1), "dinner", None))
+        self.assertEqual(list(self.meal.eaters.all()), [self.ana])  # the same people
+        self.leftover.refresh_from_db()
+        self.assertEqual(self.leftover.dish, self.curry)  # its leftovers go with it
+        self.assertEqual(PlannedMeal.objects.count(), 2)
+
+    def test_new_recipe_typed_in_replaces_it(self):
+        plan = f"2026-10-06:dinner:{self.meal.pk}"
+        page = self.client.get(reverse("meals:recipe_add") + f"?plan={plan}&next=/week/2026-10-05/")
+        self.assertContains(page, "It will replace Tacos on Tuesday 6 Oct, dinner.")
+        self.assertContains(page, f'name="plan" value="{plan}"')
+        response = self.client.post(f"/recipes/new/?plan={plan}&next=%2Fweek%2F2026-10-05%2F",
+                                    {"name": "Fajitas", "kind": "meat", "servings": "4", "status": "try"}, follow=True)
+        self.assertContains(response, "Saved Fajitas and it replaces Tacos on Tue dinner.")
+        self.meal.refresh_from_db()
+        self.assertEqual(self.meal.dish.name, "Fajitas")
+        self.assertEqual(PlannedMeal.objects.count(), 2)
+
+    @override_settings(OPENAI_API_KEY="test-key")
+    def test_recipe_from_an_import_replaces_it(self):
+        approve_ai()
+        with mock.patch.object(recipe_import, "start"):
+            self.client.post(reverse("meals:recipe_link_new"),
+                             {"url": "https://example.com/fajitas", "plan": f"2026-10-06:dinner:{self.meal.pk}", "next": "/week/2026-10-05/"})
+        self.assertEqual(RecipeImport.objects.get().plan_replace, self.meal.pk)
+
+    def test_not_another_households_meal(self):
+        other = User.objects.create_user(email="sam@example.com").household
+        theirs = PlannedMeal.objects.create(household=other, date=WEEK, dish=Dish.objects.create(household=other, name="Stew"))
+        self.assertEqual(self.client.get(reverse("meals:meal_pick") + f"?replace={theirs.pk}").status_code, 404)
+        self.client.post(f"/recipes/new/?plan=2026-10-06:dinner:{theirs.pk}",
+                         {"name": "Soup", "kind": "other", "servings": "4", "status": "try"})
+        theirs.refresh_from_db()
+        self.assertEqual(theirs.dish.name, "Stew")  # untouched; the soup is simply planned
+        self.assertTrue(PlannedMeal.objects.filter(household=home(), dish__name="Soup").exists())

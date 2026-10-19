@@ -7,6 +7,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import urlencode
 
 from .. import budget, planner, schedule
 from ..models import FamilyMember, MenuRequest, PlannedMeal
@@ -144,4 +145,12 @@ def meal_replace(request, pk):
         )
         planner.start(menu_request)
         return redirect("meals:menu_request", pk=menu_request.pk)
-    return render(request, "meals/meal_replace.html", {"meal": meal, "ai_blocked": blocked})
+    back = reverse("meals:menu_of", args=[start.isoformat()]) + f"#meal-{meal.pk}"
+    return render(request, "meals/meal_replace.html", {
+        "meal": meal,
+        "ai_blocked": blocked,
+        "back": back,
+        # The other ways: a recipe we have, or a new one - either takes this meal's place.
+        "pick_url": reverse("meals:meal_pick") + "?" + urlencode({"replace": meal.pk, "next": back}),
+        "new_url": reverse("meals:recipe_add") + "?" + urlencode({"plan": f"{meal.date.isoformat()}:{meal.slot}:{meal.pk}", "next": back}),
+    })

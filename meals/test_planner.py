@@ -14,7 +14,7 @@ from accounts.models import User
 
 from . import planner, schedule, shopping
 from .models import Dish, FamilyMember, Feedback, MenuRequest, PlannedMeal, Rule
-from .testing import approve_ai, home
+from .testing import approve_ai, freeze_now, home
 
 WEEK = date(2026, 10, 5)  # Monday
 
@@ -71,6 +71,7 @@ def meal(day, slot, name, ingredients=(), leftovers=False, servings=4, kind="veg
 @override_settings(OPENAI_API_KEY="test-key", AI_MODEL="gpt-6.1-sol", AI_EFFORT="medium", TIME_ZONE="Europe/Berlin")
 class CreateMenuTests(TestCase):
     def setUp(self):
+        freeze_now(self, WEEK)
         self.user = User.objects.create_user(email="parent@example.com", name="Pat Parent")
         approve_ai()
         self.client.force_login(self.user)

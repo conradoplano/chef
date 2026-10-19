@@ -3,7 +3,7 @@
 {% block title %}{{ dish.name }} · {{ site_name }}{% endblock %}
 
 {% block content %}
-  <p class="small"><a href="{% url 'meals:recipes' %}">‹ Recipes</a></p>
+  <p class="small">{% if meal %}<a href="{{ back }}">‹ Menu</a>{% else %}<a href="{% url 'meals:recipes' %}">‹ Recipes</a>{% endif %}</p>
   <div class="title-row">
     <h2>{{ dish.icon }} {{ dish.name }}</h2>
     <a class="icon-btn" href="{% url 'meals:recipe_edit' dish.pk %}" aria-label="Edit recipe" title="Edit recipe">✎</a>
@@ -24,24 +24,48 @@
     {% endfor %}
   </form>
 
-  <section class="card">
-    <h3>Add to a menu</h3>
-    <form method="post" class="row add-to-menu">
-      {% csrf_token %}
-      <div class="field">{{ form.date.label_tag }}{{ form.date }}{{ form.date.errors }}</div>
-      <div class="field">{{ form.slot.label_tag }}{{ form.slot }}</div>
-      <div class="field"><button type="submit">Add</button></div>
-    </form>
-  </section>
+  {% if meal %}
+    {# One meal on the menu: when, for whom, notes and feedback. #}
+    <section class="card meal-info slot-{{ meal.slot }}">
+      <div class="line section-head">
+        <h3>{{ meal.date|date:"l j M" }} · {{ meal.get_slot_display }}</h3>
+        <span class="card-actions">
+          {% if meal.can_replace %}<a class="icon-btn" href="{% url 'meals:meal_replace' meal.pk %}" aria-label="Replace with another dish" title="Replace with another dish">↻</a>{% endif %}
+          <a class="icon-btn" href="{% url 'meals:meal' meal.pk %}?next={{ request.get_full_path|urlencode }}" aria-label="Change this meal" title="Change this meal">✎</a>
+        </span>
+      </div>
+      <table class="kv small">
+        {% if meal.leftovers %}<tr><td class="muted">Leftovers</td><td>No cooking needed</td></tr>{% endif %}
+        <tr><td class="muted">Who eats</td><td>{% for e in meal.eaters.all %}{{ e.name }}{% if not forloop.last %}, {% endif %}{% empty %}Everyone{% endfor %}</td></tr>
+        {% if not meal.leftovers %}<tr><td class="muted">Portions to cook</td><td>{{ portions }}</td></tr>{% endif %}
+        {% if meal.review %}
+          <tr><td class="muted">Feedback</td><td>{% if meal.review.kids %}Kids {{ meal.review.kids_emoji }}{% endif %} {% if meal.review.parents %}Parents {{ meal.review.parents_emoji }}{% endif %}{% if meal.review.reaction %} <span class="warn" title="{{ meal.review.reaction }}">⚠</span>{% endif %}</td></tr>
+        {% endif %}
+      </table>
+      {% if meal.note %}<p class="note small">{{ meal.note }}</p>{% endif %}
+      {% if meal.review.notes %}<p class="muted small"><em>“{{ meal.review.notes }}”</em></p>{% endif %}
+      {% if meal.can_review %}<a class="btn ghost small" href="{% url 'meals:feedback' meal.pk %}?next={{ request.get_full_path|urlencode }}">Feedback</a>{% endif %}
+    </section>
+  {% else %}
+    <section class="card">
+      <h3>Add to a menu</h3>
+      <form method="post" class="row add-to-menu">
+        {% csrf_token %}
+        <div class="field">{{ form.date.label_tag }}{{ form.date }}{{ form.date.errors }}</div>
+        <div class="field">{{ form.slot.label_tag }}{{ form.slot }}</div>
+        <div class="field"><button type="submit">Add</button></div>
+      </form>
+    </section>
+  {% endif %}
 
   <section class="card">
     <div class="line section-head">
-      <h3>Ingredients <span class="muted small">for {{ dish.servings }}</span></h3>
+      <h3>Ingredients <span class="muted small">for {% if meal and not meal.leftovers %}{{ portions }}{% else %}{{ dish.servings }}{% endif %}</span></h3>
       <a class="btn ghost small" href="{% url 'meals:ingredients' dish.pk %}?next={{ request.path|urlencode }}">Edit</a>
     </div>
     {% if ingredients %}
       <ul class="plain-list small">
-        {% for i in ingredients %}<li>{{ i.name }}{% if i.quantity %} <span class="qty">{{ i.quantity|floatformat:"-2" }} {{ i.unit }}</span>{% elif i.unit %} <span class="qty">{{ i.unit }}</span>{% endif %}{% if i.note %} <span class="muted">· {{ i.note }}</span>{% endif %}</li>{% endfor %}
+        {% for i in ingredients %}<li>{{ i.name }}{% if i.amount %} <span class="qty">{{ i.amount }}</span>{% elif i.quantity %} <span class="qty">{{ i.quantity|floatformat:"-2" }} {{ i.unit }}</span>{% elif i.unit %} <span class="qty">{{ i.unit }}</span>{% endif %}{% if i.note %} <span class="muted">· {{ i.note }}</span>{% endif %}</li>{% endfor %}
       </ul>
     {% else %}
       <p class="muted small">None yet – add them so this recipe fills the shopping list when it's on a menu.</p>

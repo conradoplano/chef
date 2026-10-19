@@ -200,8 +200,9 @@ button.toggle[aria-pressed=true] { background: var(--accent); border-color: var(
 .meal-link:focus-visible { outline: none; }
 .meal-link:focus-visible::after { outline: 2px solid var(--accent); outline-offset: -2px; }
 .meal-main:has(.meal-link:hover) .meal-link { text-decoration: underline; text-decoration-color: var(--accent); }
-.meal-main:has(.meal-link:hover) .badge.source { background: var(--accent); color: #fff; }
-.meal-main .icon-btn { position: relative; z-index: 1; }
+.meal-main .icon-btn, .meal-main a.badge.source { position: relative; z-index: 1; }
+.meal-main a.badge.source { text-decoration: none; }
+.meal-main a.badge.source:hover { background: var(--accent); color: #fff; }
 .meal-card .note { margin-top: .3rem; font-style: italic; color: var(--muted); }
 .meal-foot { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--border); }
 .meal-foot .btn { margin-left: auto; }

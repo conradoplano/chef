@@ -1,23 +1,32 @@
 {% extends "base.html" %}
 
-{% block title %}Add a meal · {{ site_name }}{% endblock %}
+{% block title %}{% if replacing %}Replace {{ replacing.dish.name }}{% else %}Add a meal{% endif %} · {{ site_name }}{% endblock %}
 
 {% block content %}
   <p class="small"><a href="{{ next }}">‹ Back</a></p>
-  <h2>Add a meal</h2>
-  <p class="muted">{{ day|date:"l j F" }}</p>
+  {% if replacing %}
+    <h2>Replace {{ replacing.dish.name }}</h2>
+    <p class="muted">{{ day|date:"l j F" }}, {{ replacing.get_slot_display|lower }} – pick what goes there instead.</p>
+  {% else %}
+    <h2>Add a meal</h2>
+    <p class="muted">{{ day|date:"l j F" }}</p>
+  {% endif %}
 
   <form method="post" class="stack pick-form">
     {% csrf_token %}
     <input type="hidden" name="date" value="{{ day.isoformat }}">
     <input type="hidden" name="next" value="{{ next }}">
-    <div class="pills slot-pills" role="radiogroup" aria-label="Meal">
-      <div>
-        {% for value, label in slots %}
-          <label><input type="radio" name="slot" value="{{ value }}"{% if value == slot %} checked{% endif %}> {{ label }}</label>
-        {% endfor %}
+    {% if replacing %}
+      <input type="hidden" name="replace" value="{{ replacing.pk }}"><input type="hidden" name="slot" value="{{ slot }}">
+    {% else %}
+      <div class="pills slot-pills" role="radiogroup" aria-label="Meal">
+        <div>
+          {% for value, label in slots %}
+            <label><input type="radio" name="slot" value="{{ value }}"{% if value == slot %} checked{% endif %}> {{ label }}</label>
+          {% endfor %}
+        </div>
       </div>
-    </div>
+    {% endif %}
 
     <div class="pick-search">
       <input type="search" id="pick-search" name="q" value="{{ query }}" placeholder="Search name, ingredient or notes" aria-label="Search recipes" autocomplete="off">

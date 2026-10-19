@@ -14,18 +14,18 @@
       {% for job in imports %}
         <div class="import-row">
           <a class="import-link" href="{% url 'meals:recipe_import' job.pk %}">
-            {% with photo=job.photos.all.0 %}{% if photo %}<img src="{% url 'meals:photo' photo.pk %}" alt="" loading="lazy">{% else %}<span class="import-icon" aria-hidden="true">🔗</span>{% endif %}{% endwith %}
+            {% with photo=job.photos.all.0 %}{% if photo %}<img src="{% url 'meals:photo' photo.pk %}" alt="" loading="lazy">{% else %}<span class="import-icon" aria-hidden="true">{% if job.idea %}💡{% else %}🔗{% endif %}</span>{% endif %}{% endwith %}
             <span>
-              <strong>{% if job.result.name %}{{ job.result.name }}{% elif job.url %}{{ job.url|cut:"https://"|cut:"http://"|cut:"www."|truncatechars:40 }}{% else %}Recipe from photos{% endif %}</strong>
-              <span class="small {% if job.status == 'done' %}ready{% elif job.status == 'failed' %}warn{% else %}muted{% endif %}">
-                {% if job.status == "done" %}Ready to check ›{% elif job.status == "failed" %}Didn't work – try again or fill in{% else %}Reading…{% endif %}
+              <strong>{% if job.result.name %}{{ job.result.name }}{% elif job.idea %}{{ job.idea|truncatechars:40 }}{% elif job.url %}{{ job.url|cut:"https://"|cut:"http://"|cut:"www."|truncatechars:40 }}{% else %}Recipe from photos{% endif %}</strong>
+              <span class="small {% if job.status == 'done' or job.status == 'questions' %}ready{% elif job.status == 'failed' %}warn{% else %}muted{% endif %}">
+                {% if job.status == "done" %}Ready to check ›{% elif job.status == "questions" %}Has a question for you ›{% elif job.status == "failed" %}Didn't work – try again or fill in{% else %}Reading…{% endif %}
               </span>
               <span class="small muted">{{ job.created_at|date:"D j M, H:i" }}</span>
             </span>
           </a>
           {% if job.finished %}
             <form method="post" action="{% url 'meals:recipe_import_discard' job.pk %}" class="inline">
-              {% csrf_token %}<button type="submit" class="link small danger" aria-label="Discard these photos">Discard</button>
+              {% csrf_token %}<button type="submit" class="link small danger" aria-label="Discard this recipe">Discard</button>
             </form>
           {% endif %}
         </div>

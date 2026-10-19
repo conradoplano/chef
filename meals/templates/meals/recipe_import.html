@@ -4,6 +4,9 @@
 
 {% block content %}
   <p class="small"><a href="{% url 'meals:recipes' %}">‹ Recipes</a></p>
+  {% if job.idea %}
+    <p class="small import-source">💡 {{ job.idea }}</p>
+  {% endif %}
   {% if job.url %}
     <p class="small import-source">🔗 <a href="{{ job.url }}" target="_blank" rel="noopener">{{ job.url|cut:"https://"|cut:"http://"|truncatechars:60 }}</a></p>
   {% endif %}
@@ -13,11 +16,29 @@
     </div>
   {% endif %}
 
-  {% if not job.finished %}
+  {% if questions %}
+    <h2>A few questions</h2>
+    <p class="muted">To write the recipe for {{ job.idea|truncatechars:60 }}. Leave a question empty to let it decide.</p>
+    <form method="post" action="{% url 'meals:recipe_import_answer' job.pk %}" class="card stack">
+      {% csrf_token %}
+      {% for i, question in questions %}
+        <div class="field">
+          <label for="answer-{{ i }}">{{ question }}</label>
+          <input type="text" id="answer-{{ i }}" name="answer-{{ i }}" maxlength="500"{% if forloop.first %} autofocus{% endif %}>
+        </div>
+      {% endfor %}
+      <button class="wide" type="submit">Create recipe</button>
+    </form>
+  {% elif not job.finished %}
     <div class="card center planning" id="planning" data-status-url="{% url 'meals:recipe_import_status' job.pk %}">
-      <div class="spinner" aria-hidden="true">📖</div>
-      <h2>Reading the recipe…</h2>
-      <p class="muted">Copying ingredients and method{% if not job.url %}, and looking for it online{% endif %}. This usually takes under a minute – you can leave this page and find it again under Recipes.</p>
+      <div class="spinner" aria-hidden="true">{% if job.idea %}💡{% else %}📖{% endif %}</div>
+      {% if job.idea %}
+        <h2>Writing the recipe…</h2>
+        <p class="muted">For your family, from your idea. This usually takes under a minute – you can leave this page and find it again under Recipes.</p>
+      {% else %}
+        <h2>Reading the recipe…</h2>
+        <p class="muted">Copying ingredients and method{% if not job.url %}, and looking for it online{% endif %}. This usually takes under a minute – you can leave this page and find it again under Recipes.</p>
+      {% endif %}
     </div>
   {% elif job.status == "failed" and not manual %}
     <div class="card center planning">
@@ -29,9 +50,9 @@
     </div>
   {% else %}
     <h2>Check the recipe</h2>
-    {% if job.plan_date %}<p class="muted small">Once saved, it's planned for {{ job.plan_date|date:"l j M" }}, {{ job.plan_slot }}.</p>{% endif %}
+    {% if job.plan_date %}<p class="muted small">Once saved, it's planned for {{ job.plan_date|date:"l j M" }}, {{ job.plan_slot }}{% if job.plan_replace %}, instead of what's planned there now{% endif %}.</p>{% endif %}
     {% if job.status == "done" %}
-      <p class="muted">{% if job.url %}The AI copied the recipe from the page. Check it, especially quantities{% else %}The AI read the photos{% if form.initial.recipe_url %} and found it online{% endif %}. Check it against the photos, especially quantities{% endif %}{% if checks %} – <strong class="warn">⚠ {{ checks }} ingredient{{ checks|pluralize }} to double-check</strong>{% endif %}.</p>
+      <p class="muted">{% if job.idea %}The AI wrote this recipe from your idea. Check it, especially quantities{% elif job.url %}The AI copied the recipe from the page. Check it, especially quantities{% else %}The AI read the photos{% if form.initial.recipe_url %} and found it online{% endif %}. Check it against the photos, especially quantities{% endif %}{% if checks %} – <strong class="warn">⚠ {{ checks }} ingredient{{ checks|pluralize }} to double-check</strong>{% endif %}.</p>
     {% endif %}
     <form method="post" class="stack" id="ingredients">
       {% csrf_token %}

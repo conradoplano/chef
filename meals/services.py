@@ -19,9 +19,22 @@ def week_start(day):
 # --- menu ---------------------------------------------------------------------------------
 
 
-def plan_dish(dish, day, slot, user, leftovers=False):
-    """Puts a dish on its household's menu, for the people who usually eat that meal."""
+def plan_dish(dish, day, slot, user, leftovers=False, replace=None):
+    """Puts a dish on its household's menu, for the people who usually eat that meal - or, with `replace`
+    (a meal id), in the place of that meal: same day, meal and people, and its leftovers later in the week
+    become leftovers of the new dish. A replaced meal gets a `replaced` attribute: the old dish's name."""
     household = dish.household
+    old = PlannedMeal.objects.filter(household=household, pk=replace).select_related("dish").first() if replace else None
+    if old:
+        replaced = old.dish.name
+        for leftover in leftovers_after(old):
+            leftover.dish, leftover.updated_by = dish, user
+            leftover.save(update_fields=["dish", "updated_by", "updated_at"])
+        Feedback.objects.filter(meal=old).delete()  # it was about the other dish
+        old.dish, old.leftovers, old.note, old.servings, old.updated_by = dish, leftovers, "", None, user
+        old.save()
+        old.replaced = replaced
+        return old
     meal = PlannedMeal.objects.create(
         household=household, date=day, slot=slot, dish=dish, leftovers=leftovers, updated_by=user
     )

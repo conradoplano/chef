@@ -47,7 +47,8 @@ Phone screens with made-up demo data (all names and households are fictional).
 - **Recipes** – the recipe binder: ★ favourites, recipes we found and want to try, and every dish cooked, with
   history and feedback. Add recipes, add them to a menu, star a dish from any meal card. A recipe to try that
   everyone likes becomes a favourite; AI planning reuses favourites and works in recipes to try.
-  **+ Add recipe** offers three ways: **🔗 from a link** (the page's recipe data or text is read by AI; sites
+  **+ Add recipe** offers four ways: **💡 from an idea** (e.g. something seen in the supermarket: a recipe is
+  written for the family, after a question or two if needed), **🔗 from a link** (the page's recipe data or text is read by AI; sites
   that block downloads are opened by the AI's web search; on Android, *Share → Chef* fills in the link),
   **📷 from photos** (magazine, cookbook, handwritten card; plus a link if it's also online), or **✍️ typed in**.
   You check everything the AI read before it's saved. Recipes without a web page keep their method and photos.

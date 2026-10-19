@@ -388,11 +388,12 @@ class MenuRequest(models.Model):
 
 
 class RecipeImport(models.Model):
-    """A recipe from photos (e.g. a magazine page) or a web page, read by AI, then checked by the family."""
+    """A recipe from photos (e.g. a magazine page), a web page or an idea, made by AI, then checked by the family."""
 
     class Status(models.TextChoices):
         PENDING = "pending", "Waiting"
         RUNNING = "running", "Reading"
+        QUESTIONS = "questions", "Has questions"
         DONE = "done", "Ready to check"
         FAILED = "failed", "Failed"
         SAVED = "saved", "Saved"
@@ -402,9 +403,15 @@ class RecipeImport(models.Model):
     # Started from a day on the menu: once saved, the recipe is planned there.
     plan_date = models.DateField(null=True, blank=True)
     plan_slot = models.CharField(max_length=10, blank=True)
+    plan_replace = models.PositiveIntegerField(null=True, blank=True, help_text="The meal it takes the place of.")
     plan_next = models.CharField(max_length=300, blank=True)
     # A recipe is read either from photos (RecipePhoto rows) or from a web page at this address.
     url = models.URLField("recipe link", max_length=500, blank=True)
+    # ... or written by AI from an idea ("pork gyros in pita with cucumber and cherry tomatoes"), maybe after
+    # asking a few questions: questions ["..."], answers [{"question": "...", "answer": "..."}].
+    idea = models.TextField(blank=True)
+    questions = models.JSONField(default=list, blank=True)
+    answers = models.JSONField(default=list, blank=True)
     result = models.JSONField(default=dict, blank=True, help_text="What the AI read, before checking.")
     error = models.TextField(blank=True)
     dish = models.ForeignKey(Dish, null=True, blank=True, on_delete=models.SET_NULL, related_name="imports")

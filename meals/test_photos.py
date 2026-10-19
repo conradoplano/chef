@@ -222,9 +222,11 @@ class RecipeFromPhotoTests(TestCase):
     def test_cards_open_recipes_the_app_holds(self):
         dish = Dish.objects.create(household=home(), name="Gran's stew", instructions="Brown the meat.\nSimmer 2 hours.", source="Gran's notebook")
         PlannedMeal.objects.create(household=home(), date=date(2026, 10, 5), dish=dish)
+        meal = PlannedMeal.objects.get(dish=dish)
         page = self.client.get(reverse("meals:menu_of", args=["2026-10-05"]))
-        self.assertContains(page, f'<a class="meal-link" href="{reverse("meals:recipe", args=[dish.pk])}">')
+        self.assertContains(page, f'<a class="meal-link" href="{reverse("meals:meal_recipe", args=[meal.pk])}">')
         self.assertContains(page, "📷 Gran&#x27;s notebook")
+        self.assertContains(self.client.get(reverse("meals:meal_recipe", args=[meal.pk])), "Simmer 2 hours.")
         dish.ingredients.create(name="Beef", quantity=500, unit="g", category="meat")
         shop = self.client.get(reverse("meals:shopping_of", args=["2026-10-05"]))
         self.assertContains(shop, f'<a class="badge use" href="{reverse("meals:recipe", args=[dish.pk])}"')

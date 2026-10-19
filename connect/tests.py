@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from accounts.models import User
 from meals.models import Dish, ExtraItem, Feedback, Household, MenuRequest, PlannedMeal, ShoppingCheck, WeeklyItem
+from meals.testing import freeze_now
 
 from . import mcp
 from .models import AuthorizationCode, Client, Connection
@@ -178,6 +179,7 @@ class OAuthTests(OAuthMixin, TestCase):
 
 class MCPTests(OAuthMixin, TestCase):
     def setUp(self):
+        freeze_now(self, WEEK)
         self.user = User.objects.create_user(email="pat@example.com", name="Pat")
         self.household = self.user.household
         self.token = self.connect(self.user)["access_token"]
