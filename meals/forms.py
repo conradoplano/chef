@@ -1,3 +1,5 @@
+from decimal import Decimal, InvalidOperation
+
 from django import forms
 
 from .models import Dish, ExtraItem, FamilyMember, Feedback, Household, Ingredient, PlannedMeal, Rule, WeeklyItem
@@ -102,13 +104,23 @@ class FeedbackForm(forms.ModelForm):
 UNITS = ["g", "kg", "ml", "l", "pcs", "tbsp", "tsp", "can", "pack", "bunch", "head", "clove", "bag", "jar"]
 
 
+class QuantityInput(forms.NumberInput):
+    """Shows 100 and 1.5 rather than 100.00 and 1.50 (quantities are stored with two decimals)."""
+
+    def format_value(self, value):
+        try:
+            return f"{Decimal(str(value)).normalize():f}" if value not in (None, "") else None
+        except InvalidOperation:
+            return super().format_value(value)
+
+
 class IngredientForm(forms.ModelForm):
     class Meta:
         model = Ingredient
         fields = ["name", "quantity", "unit", "category", "note"]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Ingredient", "list": "ingredient-names"}),
-            "quantity": forms.NumberInput(
+            "quantity": QuantityInput(
                 attrs={"placeholder": "Qty", "step": "any", "min": "0", "inputmode": "decimal"}
             ),
             "unit": forms.TextInput(attrs={"placeholder": "Unit", "list": "units"}),

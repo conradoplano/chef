@@ -543,6 +543,13 @@ class ShoppingListTests(TestCase):
         url = reverse("meals:ingredients", args=[self.pie.pk]) + "?next=/week/2026-09-28/"
         response = self.client.get(url)
         self.assertContains(response, "Lamb mince")
+        # Quantities without needless decimals: 500, not 500.00 (fractions stay, e.g. 1.5).
+        for row, value in [(0, "1"), (1, "1.2"), (2, "500")]:  # onion, potatoes (kg), lamb mince (g)
+            self.assertContains(response, f'name="ingredients-{row}-quantity" value="{value}"')
+        self.assertNotContains(response, '.00"')
+        from .forms import QuantityInput
+        self.assertEqual([QuantityInput().format_value(v) for v in [Decimal("1.50"), Decimal("0.50"), "50.00", None]],
+                         ["1.5", "0.5", "50", None])
         # Just its four ingredients, no empty rows below them ("+ Another ingredient" adds one).
         self.assertEqual(len(response.context["formset"].forms), 4)
         new = Dish.objects.create(household=home(), name="Soup")
