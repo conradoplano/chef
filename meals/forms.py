@@ -116,7 +116,11 @@ class IngredientForm(forms.ModelForm):
         }
 
 
-IngredientFormSet = forms.inlineformset_factory(Dish, Ingredient, form=IngredientForm, extra=3, can_delete=True)
+def ingredient_formset(dish):
+    """The ingredients of a dish: three empty rows to start a new list, none below an existing one
+    ("+ Another ingredient" adds rows)."""
+    extra = 0 if dish.pk and dish.ingredients.exists() else 3
+    return forms.inlineformset_factory(Dish, Ingredient, form=IngredientForm, extra=extra, can_delete=True)
 
 
 class ExtraItemForm(forms.ModelForm):

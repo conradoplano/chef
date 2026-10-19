@@ -13,7 +13,7 @@ from django.views.decorators.http import require_POST
 
 from .. import planner, services
 from ..services import leftovers_after
-from ..forms import DishServingsForm, FeedbackForm, IngredientFormSet, PlannedMealForm, UNITS
+from ..forms import DishServingsForm, FeedbackForm, PlannedMealForm, UNITS, ingredient_formset
 from ..models import Dish, Feedback, Ingredient, MenuRequest, PlannedMeal, RecipeImport
 from .common import (
     back_to,
@@ -156,7 +156,7 @@ def feedback_quick(request, pk):
 @login_required
 def ingredients(request, pk):
     dish = get_object_or_404(Dish, pk=pk, household=request.household)
-    formset = IngredientFormSet(request.POST or None, instance=dish)
+    formset = ingredient_formset(dish)(request.POST or None, instance=dish)
     servings_form = DishServingsForm(request.POST or None, instance=dish, prefix="dish")
     if request.method == "POST" and formset.is_valid() and servings_form.is_valid():
         servings_form.save()

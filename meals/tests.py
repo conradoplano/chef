@@ -543,6 +543,10 @@ class ShoppingListTests(TestCase):
         url = reverse("meals:ingredients", args=[self.pie.pk]) + "?next=/week/2026-09-28/"
         response = self.client.get(url)
         self.assertContains(response, "Lamb mince")
+        # Just its four ingredients, no empty rows below them ("+ Another ingredient" adds one).
+        self.assertEqual(len(response.context["formset"].forms), 4)
+        new = Dish.objects.create(household=home(), name="Soup")
+        self.assertEqual(len(self.client.get(reverse("meals:ingredients", args=[new.pk])).context["formset"].forms), 3)
         data = {
             "ingredients-TOTAL_FORMS": "5", "ingredients-INITIAL_FORMS": "4",
             "ingredients-MIN_NUM_FORMS": "0", "ingredients-MAX_NUM_FORMS": "1000", "dish-servings": "4",
