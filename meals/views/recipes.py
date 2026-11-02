@@ -21,7 +21,7 @@ from django.views.decorators.http import require_POST
 
 from .. import budget, photos, recipe_import
 from .. import shopping as shopping_list
-from ..services import plan_dish, search_recipes, with_history
+from ..services import plan_dish, search_recipes, unsaved_imports, with_history
 from ..forms import UNITS, AddToMenuForm, IngredientForm, RecipeForm
 from ..models import Dish, Ingredient, PlannedMeal, RecipeImport, RecipePhoto
 from .common import Plan, parse_date, parse_plan, planned_text, safe_next, week_start
@@ -449,11 +449,6 @@ def recipe_photo_delete(request, pk):
     photo.delete()
     messages.success(request, "Photo removed.")
     return redirect(reverse("meals:recipe", args=[dish_pk]) + "#photos")
-
-
-def unsaved_imports(household):
-    """Imports still waiting: being read, ready to check, or failed."""
-    return RecipeImport.objects.filter(household=household).exclude(status=RecipeImport.Status.SAVED).prefetch_related("photos")
 
 
 @login_required

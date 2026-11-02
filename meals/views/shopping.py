@@ -1,9 +1,13 @@
-"""The week's shopping list: ticking items off (synced between phones) and extra items."""
+"""The week's shopping list - or a shopping trip's, from today until a chosen day: ticking items off
+(synced between phones) and extra items."""
+from datetime import date, timedelta
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
@@ -14,12 +18,68 @@ from ..models import ExtraItem, WeeklyItem
 from .common import parse_date, safe_next, week_context, week_start
 
 
+TRIP_SESSION_KEY = "shop_until"
+TRIP_DAYS = 14  # how far ahead a trip can go
+
+
+def trip_until(request, day, today):
+    """The last day of the shopping trip being shown, or None for the week's list. ?until=<date> starts a
+    trip from today (remembered for the rest of the day, like the selected week); ?until= or opening a
+    week ends it."""
+    if "until" in request.GET:
+        try:
+            until = date.fromisoformat(request.GET["until"])
+        except ValueError:
+            until = None
+        if until and today <= until < today + timedelta(days=TRIP_DAYS):
+            request.session[TRIP_SESSION_KEY] = {"until": until.isoformat(), "on": today.isoformat()}
+            return until
+        request.session.pop(TRIP_SESSION_KEY, None)
+        return None
+    if day:
+        request.session.pop(TRIP_SESSION_KEY, None)
+        return None
+    saved = request.session.get(TRIP_SESSION_KEY) or {}
+    if saved.get("on") == today.isoformat():
+        return date.fromisoformat(saved["until"])
+    return None
+
+
+def trip_dates(start, until):
+    """The trip's first and last day from the URL; 404 unless it's a real trip."""
+    start, until = parse_date(start), parse_date(until)
+    if not start <= until < start + timedelta(days=TRIP_DAYS):
+        raise Http404("Not a shopping trip")
+    return start, until
+
+
 @login_required
 def shopping(request, day=None):
-    context = week_context(request, day)
-    sections, at_home, missing = shopping_list.build(request.household, context["start"])
+    today = timezone.localdate()
+    until = trip_until(request, day, today)
+    if until:
+        context = {"start": today, "end": until, "this_week": week_start(today), "today": today, "trip": True}
+        week = week_start(today)
+        context.update(
+            list_url=reverse("meals:shopping") + "?" + urlencode({"until": until.isoformat()}),
+            state_url=reverse("meals:shopping_trip_state", args=[today.isoformat(), until.isoformat()]),
+            toggle_url=reverse("meals:shopping_trip_toggle", args=[today.isoformat(), until.isoformat()]),
+        )
+    else:
+        context = week_context(request, day)
+        week = context["start"]
+        context.update(
+            list_url=reverse("meals:shopping_of", args=[week.isoformat()]),
+            state_url=reverse("meals:shopping_state", args=[week.isoformat()]),
+            toggle_url=reverse("meals:shopping_toggle", args=[week.isoformat()]),
+        )
+    sections, at_home, missing = shopping_list.build(request.household, context["start"], until)
     items = [*at_home, *(i for s in sections for i in s.items)]
     context.update(
+        week=week,
+        until=until,
+        # "Shop until": a trip from today until one of the next days.
+        trip_days=[(today + timedelta(days=i), "Today" if i == 0 else "Tomorrow" if i == 1 else None) for i in range(TRIP_DAYS)],
         sections=sections,
         at_home=at_home,
         missing=missing,
@@ -36,7 +96,7 @@ def shopping(request, day=None):
         skipped=WeeklyItem.objects.filter(
             household=request.household,
             pk=request.GET.get("skipped") if request.GET.get("skipped", "").isdigit() else None,
-            skips__week=context["start"],
+            skips__week=week,
         ).first(),
     )
     return render(request, "meals/shopping.html", context)
@@ -45,6 +105,31 @@ def shopping(request, day=None):
 @login_required
 def shopping_state(request, day):
     return JsonResponse(shopping_list.state(request.household, week_start(parse_date(day))))
+
+
+@login_required
+def shopping_trip_state(request, start, until):
+    start, until = trip_dates(start, until)
+    return JsonResponse(shopping_list.state(request.household, start, until))
+
+
+@login_required
+@require_POST
+def shopping_trip_toggle(request, start, until):
+    """Like shopping_toggle, for a trip's own ticks."""
+    start, until = trip_dates(start, until)
+    key = request.POST.get("key", "")[:120]
+    if key:
+        services.set_bought(request.household, request.user, start, key, request.POST.get("checked") == "1", trip=True)
+    if request.headers.get("X-Requested-With") == "fetch":
+        return JsonResponse(shopping_list.state(request.household, start, until))
+    return redirect(reverse("meals:shopping") + "?" + urlencode({"until": until.isoformat()}))
+
+
+def back_to_list(request, week, **params):
+    """Back to the list the change was made on (?next=, e.g. a trip), or else the week's list."""
+    url = safe_next(request) or reverse("meals:shopping_of", args=[week.isoformat()])
+    return redirect(url + (("&" if "?" in url else "?") + urlencode(params) if params else ""))
 
 
 @login_required
@@ -99,7 +184,7 @@ def extra_add(request, day):
         messages.success(request, f"Added {extra}.")
     else:
         messages.error(request, "Enter a name for the item.")
-    return redirect("meals:shopping_of", day=week.isoformat())
+    return back_to_list(request, week)
 
 
 @login_required
@@ -108,8 +193,7 @@ def extra_delete(request, pk):
     """Hides the item; it can be brought back with Undo until it is purged a day later."""
     extra = get_object_or_404(ExtraItem, pk=pk, household=request.household, removed_at=None)
     services.remove_extra_item(extra)
-    url = reverse("meals:shopping_of", args=[extra.week.isoformat()])
-    return redirect(f"{url}?{urlencode({'removed': extra.pk})}")
+    return back_to_list(request, extra.week, removed=extra.pk)
 
 
 @login_required
@@ -119,7 +203,7 @@ def extra_restore(request, pk):
     extra.removed_at = None
     extra.save(update_fields=["removed_at"])
     messages.success(request, f"{extra} is back on the list.")
-    return redirect("meals:shopping_of", day=extra.week.isoformat())
+    return back_to_list(request, extra.week)
 
 
 @login_required
@@ -129,8 +213,7 @@ def weekly_skip(request, day, pk):
     week = week_start(parse_date(day))
     item = get_object_or_404(WeeklyItem, pk=pk, household=request.household)
     services.skip_weekly_item(item, week)
-    url = reverse("meals:shopping_of", args=[week.isoformat()])
-    return redirect(f"{url}?{urlencode({'skipped': item.pk})}")
+    return back_to_list(request, week, skipped=item.pk)
 
 
 @login_required
@@ -140,4 +223,4 @@ def weekly_unskip(request, day, pk):
     item = get_object_or_404(WeeklyItem, pk=pk, household=request.household)
     services.unskip_weekly_item(item, week)
     messages.success(request, f"{item} is back on this week's list.")
-    return redirect("meals:shopping_of", day=week.isoformat())
+    return back_to_list(request, week)

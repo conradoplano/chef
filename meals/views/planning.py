@@ -90,10 +90,18 @@ def menu_create(request, day):
     )
 
 
+SEEN_MENU_JOBS = "seen_menu_jobs"
+
+
 @login_required
 def menu_request(request, pk):
     planner.expire_stale()
     menu_request = get_object_or_404(MenuRequest, pk=pk, household=request.household)
+    if menu_request.finished:
+        # Seen: no longer listed under "In progress" on Home (in this browser).
+        seen = request.session.get(SEEN_MENU_JOBS, [])
+        if menu_request.pk not in seen:
+            request.session[SEEN_MENU_JOBS] = [*seen[-19:], menu_request.pk]
     if menu_request.status == MenuRequest.Status.DONE:
         return redirect("meals:menu_of", day=menu_request.week.isoformat())
     return render(request, "meals/menu_request.html", {"menu_request": menu_request})
@@ -107,7 +115,8 @@ def menu_request_status(request, pk):
         "status": menu_request.status,
         "finished": menu_request.finished,
         "error": menu_request.error,
-        "url": reverse("meals:menu_of", args=[menu_request.week.isoformat()]),
+        # Through the request's page, so it counts as seen, then on to the week.
+        "url": reverse("meals:menu_request", args=[menu_request.pk]),
     })
 
 

@@ -10,8 +10,13 @@
     </div>
   </div>
 
-  {% if ready_imports %}
-    <a class="flash planning-bar" href="{% url 'meals:recipes' %}">📖 {{ ready_imports }} new recipe{{ ready_imports|pluralize }} ready to check <strong>›</strong></a>
+  {% if menu_jobs or imports %}
+    {# AI at work: menus being created or changed, recipes being read or written. Updates by itself. #}
+    <section class="card imports in-progress">
+      <h3>In progress</h3>
+      {% for r in menu_jobs %}{% include "meals/_menu_job_row.html" %}{% endfor %}
+      {% for job in imports %}{% include "meals/_import_row.html" %}{% endfor %}
+    </section>
   {% endif %}
 
   <section class="day-group today">

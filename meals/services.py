@@ -9,7 +9,7 @@ from django.db.models import Count, Max, Prefetch, Q
 from django.utils import timezone
 
 from . import schedule
-from .models import Dish, ExtraItem, FamilyMember, Feedback, PlannedMeal, RecipePhoto, ShoppingCheck, WeeklySkip
+from .models import Dish, ExtraItem, FamilyMember, Feedback, PlannedMeal, RecipeImport, RecipePhoto, ShoppingCheck, WeeklySkip
 
 
 def week_start(day):
@@ -129,16 +129,25 @@ def unskip_weekly_item(item, week):
     WeeklySkip.objects.filter(item=item, week=week).delete()
 
 
-def set_bought(household, user, week, key, bought):
-    """Marks one item as bought or not. Sets the wanted state rather than flipping, so two people
-    tapping at the same time don't undo each other."""
+def set_bought(household, user, week, key, bought, trip=False):
+    """Marks one item as bought or not, on a week's list (or a trip's, from its first day). Sets the wanted
+    state rather than flipping, so two people tapping at the same time don't undo each other."""
     if bought:
-        ShoppingCheck.objects.update_or_create(household=household, week=week, key=key, defaults={"checked_by": user})
+        ShoppingCheck.objects.update_or_create(household=household, week=week, trip=trip, key=key,
+                                               defaults={"checked_by": user})
     else:
-        ShoppingCheck.objects.filter(household=household, week=week, key=key).delete()
+        ShoppingCheck.objects.filter(household=household, week=week, trip=trip, key=key).delete()
 
 
 # --- recipes -------------------------------------------------------------------------------
+
+
+def unsaved_imports(household):
+    """Recipes still being added: being read or written, with questions, ready to check, or failed."""
+    from . import recipe_import
+
+    recipe_import.expire_stale()
+    return RecipeImport.objects.filter(household=household).exclude(status=RecipeImport.Status.SAVED).prefetch_related("photos")
 
 
 def with_history(dishes):

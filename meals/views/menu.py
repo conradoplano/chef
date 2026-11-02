@@ -4,6 +4,7 @@ from urllib.parse import urlsplit
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -12,9 +13,9 @@ from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
 from .. import planner, services
-from ..services import leftovers_after
+from ..services import leftovers_after, unsaved_imports
 from ..forms import DishServingsForm, FeedbackForm, PlannedMealForm, UNITS, ingredient_formset
-from ..models import Dish, Feedback, Ingredient, MenuRequest, PlannedMeal, RecipeImport
+from ..models import Dish, Feedback, Ingredient, MenuRequest, PlannedMeal
 from .common import (
     back_to,
     back_url,
@@ -49,8 +50,25 @@ def home(request):
             "coming": coming,
             "coming_title": coming_title,
             "coming_week": coming_week,
-            "ready_imports": RecipeImport.objects.filter(household=household, status=RecipeImport.Status.DONE).count(),
+            # In progress: menus the AI is working on (or finished within the hour) and recipes being added.
+            "menu_jobs": recent_menu_jobs(request),
+            "imports": unsaved_imports(household),
         },
+    )
+
+
+def recent_menu_jobs(request):
+    """Menus the AI is working on, and ones finished within the hour that weren't opened yet here."""
+    from .planning import SEEN_MENU_JOBS
+
+    planner.expire_stale()
+    recently = timezone.now() - timedelta(hours=1)
+    unfinished = Q(status__in=[MenuRequest.Status.PENDING, MenuRequest.Status.RUNNING])
+    return (
+        MenuRequest.objects.filter(household=request.household)
+        .filter(unfinished | Q(finished_at__gte=recently))
+        .exclude(~unfinished & Q(pk__in=request.session.get(SEEN_MENU_JOBS, [])))
+        .select_related("created_by")[:3]
     )
 
 

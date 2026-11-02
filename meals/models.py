@@ -322,17 +322,19 @@ class ExtraItem(models.Model):
 
 
 class ShoppingCheck(models.Model):
-    """An item marked as bought on a week's list. Items are identified by key, so checks
-    survive menu changes for ingredients that are still on the list."""
+    """An item marked as bought on a week's list - or, with `trip`, on the list of a shopping trip from
+    `week` (the day it starts) until a chosen day. Items are identified by key, so checks survive menu
+    changes for ingredients that are still on the list."""
 
     household = models.ForeignKey("Household", on_delete=models.CASCADE, related_name="+")
     week = models.DateField()
+    trip = models.BooleanField(default=False)
     key = models.CharField(max_length=120)
     checked_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
     checked_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["household", "week", "key"], name="unique_check_per_week")]
+        constraints = [models.UniqueConstraint(fields=["household", "week", "trip", "key"], name="unique_check_per_week")]
 
     def __str__(self):
         return f"{self.week}: {self.key}"

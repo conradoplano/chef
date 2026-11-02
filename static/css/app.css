@@ -452,3 +452,9 @@ table.kv.models td { text-align: left; white-space: nowrap; padding-left: 0; pad
 .add-here-form { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .4rem; margin: .3rem 0 .5rem; }
 .add-here-form input[name="extra-name"] { flex: 2 1 7rem; min-width: 0; }
 .add-here-form input[name="extra-quantity"] { flex: 1 1 4.5rem; min-width: 0; }
+
+/* "Shop for": the whole week, or today until one of the next days. */
+.trip-form { display: flex; justify-content: center; align-items: center; gap: .5rem; margin: -.4rem 0 .8rem; }
+.trip-form select { width: auto; min-height: 2.2rem; padding: .25rem .5rem; }
+/* On a trip: what the rest of the week also needs of an item. */
+.item-body .later { display: block; color: var(--saffron); }

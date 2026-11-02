@@ -79,6 +79,7 @@ class Item:
     checked: bool = False
     staple_list: str = ""  # "pantry" or "freezer" if it's a staple we usually have
     staple_name: str = ""  # the staple it matched, e.g. "olive oil" for "Extra virgin olive oil"
+    later: "Item" = None  # on a trip: what the rest of that week's meals also need of it
 
     @property
     def can_be_staple(self):
@@ -141,17 +142,13 @@ def matching_staple(key, staples):
     return next((name for s, name in staples if key == s or re.search(rf"\b{re.escape(s)}\b", key)), None)
 
 
-def build(household, week):
-    """Returns (sections, at_home, missing) for the household's week starting on Monday `week`.
+def week_start(day):
+    return day - timedelta(days=day.weekday())
 
-    at_home: items that are staples (pantry or freezer), to check before shopping.
-    missing: cooked meals whose dish has no ingredients yet.
-    """
-    meals = (
-        PlannedMeal.objects.filter(household=household, date__range=(week, week + timedelta(days=6)), leftovers=False)
-        .select_related("dish")
-        .prefetch_related("dish__ingredients", "dish__photos")
-    )
+
+def merge(meals):
+    """The meals' ingredients merged into items (same ingredient, quantities added up and scaled to the
+    portions planned). Returns ({key: Item}, meals whose dish has no ingredients)."""
     merged = {}
     amounts = {}
     unknown = set()
@@ -182,23 +179,56 @@ def build(household, week):
                 item.uses.append(Use(meal))
     for key, item in merged.items():
         item.quantity = format_quantities(amounts[key], key in unknown)
+    return merged, missing
+
+
+def meals_between(household, start, end):
+    """The cooked meals (not leftovers) from start to end."""
+    return (
+        PlannedMeal.objects.filter(household=household, date__range=(start, end), leftovers=False)
+        .select_related("dish")
+        .prefetch_related("dish__ingredients", "dish__photos")
+    )
+
+
+def build(household, start, until=None):
+    """Returns (sections, at_home, missing) for the household's week starting on Monday `start` - or, with
+    `until`, for a shopping trip: the meals from `start` (today) until that day, also into the next week.
+
+    at_home: items that are staples (pantry or freezer), to check before shopping.
+    missing: cooked meals whose dish has no ingredients yet.
+    A trip has its own ticks, and includes the items added by hand for the weeks it touches and the
+    every-week items once.
+    """
+    trip = until is not None
+    end = until if trip else start + timedelta(days=6)
+    week = week_start(start)
+    meals = meals_between(household, start, end)
+    merged, missing = merge(meals)
+
+    if trip:
+        # The rest of that week needs some of it too: worth knowing, to buy it now.
+        later_meals = meals_between(household, until + timedelta(days=1), week_start(until) + timedelta(days=6))
+        later, _ = merge(later_meals)
+        for key, item in merged.items():
+            item.later = later.get(key)
 
     items = list(merged.values())
-    for extra in ExtraItem.objects.filter(household=household, week=week, removed_at=None):
+    for extra in ExtraItem.objects.filter(household=household, week__range=(week, week_start(end)), removed_at=None):
         items.append(
             Item(key=f"extra-{extra.pk}", name=extra.name, category=extra.category, quantity=extra.quantity,
                  notes=[extra.note] if extra.note else [], extra=extra)
         )
 
     # Weekly items, from the week they were added on, unless taken off this week's list.
-    weekly_items = WeeklyItem.objects.filter(household=household, created_at__date__lt=week + timedelta(days=7))
+    weekly_items = WeeklyItem.objects.filter(household=household, created_at__date__lt=week_start(end) + timedelta(days=7))
     for weekly in weekly_items.exclude(skips__week=week):
         items.append(
             Item(key=f"weekly-{weekly.pk}", name=weekly.name, category=weekly.category, quantity=weekly.quantity,
                  notes=[weekly.note] if weekly.note else [], weekly=weekly)
         )
 
-    checks = {c.key: c for c in ShoppingCheck.objects.filter(household=household, week=week).select_related("checked_by")}
+    checks = {c.key: c for c in ShoppingCheck.objects.filter(household=household, week=start, trip=trip).select_related("checked_by")}
     for item in items:
         check = checks.get(item.key)
         if check:
@@ -235,14 +265,15 @@ def build(household, week):
 def signature(sections, at_home):
     """Changes when items are added, removed or change quantity, so open pages know to reload."""
     lines = sorted(
-        f"{i.key}|{i.quantity}|{len(i.uses)}" for i in [*at_home, *(i for s in sections for i in s.items)]
+        f"{i.key}|{i.quantity}|{len(i.uses)}|{i.later.quantity if i.later else ''}"
+        for i in [*at_home, *(i for s in sections for i in s.items)]
     )
     return hashlib.sha1("\n".join(lines).encode()).hexdigest()[:12]
 
 
-def state(household, week):
+def state(household, start, until=None):
     """What other devices need to stay in sync: who checked what, and the list's signature."""
-    sections, at_home, _ = build(household, week)
+    sections, at_home, _ = build(household, start, until)
     items = [*at_home, *(i for s in sections for i in s.items)]
     return {
         "checked": {i.key: i.checked_by for i in items if i.checked},

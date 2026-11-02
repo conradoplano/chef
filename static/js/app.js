@@ -207,6 +207,23 @@
     setTimeout(poll, 3000);
   }
 
+  // --- Lists of things in progress (Home, Recipes): refresh once one of them has finished. ---
+  const progress = [...document.querySelectorAll('[data-progress-url]')];
+  if (progress.length && !planning) {
+    const check = async () => {
+      if (document.visibilityState === 'visible') {
+        for (const row of progress) {
+          try {
+            const response = await fetch(row.dataset.progressUrl, { headers: fetchHeaders });
+            if (response.ok && (await response.json()).finished) { location.reload(); return; }
+          } catch (e) { /* try again */ }
+        }
+      }
+      setTimeout(check, 4000);
+    };
+    setTimeout(check, 4000);
+  }
+
   // --- Photos: scaled down in the browser before uploading (also turns iPhone HEIC into JPEG). ---
   const shrink = (file) => new Promise((resolve) => {
     if (!file.type.startsWith('image/')) return resolve(file);
@@ -265,6 +282,11 @@
     // Enter filters instead of submitting the form.
     pickSearch.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); filter(); } });
   }
+
+  // --- Choices that apply straight away, e.g. "Shop for" on the shopping list. ---
+  document.addEventListener('change', (event) => {
+    if (event.target.matches('select[data-autosubmit]')) event.target.form.submit();
+  });
 
   // --- Forms that need a second thought, e.g. removing a person: <form data-confirm="Question?">. ---
   document.addEventListener('submit', (event) => {

@@ -278,10 +278,17 @@ class UnfinishedImportTests(TestCase):
         # Something still being read can't be discarded.
         self.assertNotContains(page, reverse("meals:recipe_import_discard", args=[reading.pk]))
 
-    def test_home_reminds_when_ready(self):
-        self.assertNotContains(self.client.get(reverse("meals:home")), "ready to check")
-        self._job("done", result={"name": "Bake"})
-        self.assertContains(self.client.get(reverse("meals:home")), "1 new recipe ready to check")
+    def test_home_shows_recipes_in_progress(self):
+        self.assertNotContains(self.client.get(reverse("meals:home")), "In progress")
+        ready = self._job("done", result={"name": "Bake"})
+        reading = self._job("running")
+        home = self.client.get(reverse("meals:home"))
+        self.assertContains(home, "<h3>In progress</h3>")
+        self.assertContains(home, "Ready to check ›")
+        self.assertContains(home, reverse("meals:recipe_import", args=[ready.pk]))
+        # Still being read: the page asks for its progress, and refreshes when it's done.
+        self.assertContains(home, f'data-progress-url="{reverse("meals:recipe_import_status", args=[reading.pk])}"')
+        self.assertNotContains(home, f'data-progress-url="{reverse("meals:recipe_import_status", args=[ready.pk])}"')
 
     def test_discard_removes_photos_and_files(self):
         job = self._job("done", result={"name": "Bake"})
@@ -442,3 +449,39 @@ class RestoreDroppedIngredientsMigrationTests(TestCase):
              ("black olives", None, "handful", "pantry", "pitted and torn"),
              ("parsley leaves", None, "handful", "vegetables", "picked")],
         )
+
+
+class HomeMenuProgressTests(TestCase):
+    """Home shows menus the AI is working on, and ones that were just finished."""
+
+    def test_menus_in_progress(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from .models import MenuRequest
+
+        user = User.objects.create_user(email="pat@example.com", name="Pat")
+        self.client.force_login(user)
+        h = user.household
+        running = MenuRequest.objects.create(household=h, week=date(2026, 10, 12), status="running", created_by=user, slots=[])
+        done = MenuRequest.objects.create(household=h, week=date(2026, 10, 5), status="done", kind="change", slots=[],
+                                          finished_at=timezone.now() - timedelta(minutes=20))
+        MenuRequest.objects.create(household=h, week=date(2026, 9, 28), status="done", slots=[],
+                                   finished_at=timezone.now() - timedelta(hours=3))  # long done: not shown
+        home = self.client.get(reverse("meals:home"))
+        self.assertContains(home, "New menu · week of 12 Oct")
+        self.assertContains(home, "Working on it…")
+        self.assertContains(home, f'data-progress-url="{reverse("meals:menu_request_status", args=[running.pk])}"')
+        self.assertContains(home, "Changing the menu · week of 5 Oct")
+        self.assertNotContains(home, "week of 28 Sep")
+        # Opening a finished one takes it off (a running one stays until it's finished).
+        self.assertRedirects(self.client.get(reverse("meals:menu_request", args=[done.pk])),
+                             reverse("meals:menu_of", args=[done.week.isoformat()]), fetch_redirect_response=False)
+        self.client.get(reverse("meals:menu_request", args=[running.pk]))
+        home = self.client.get(reverse("meals:home"))
+        self.assertNotContains(home, "Changing the menu")
+        self.assertContains(home, "New menu · week of 12 Oct")
+        other = User.objects.create_user(email="sam@example.com")
+        self.client.force_login(other)
+        self.assertNotContains(self.client.get(reverse("meals:home")), "In progress")

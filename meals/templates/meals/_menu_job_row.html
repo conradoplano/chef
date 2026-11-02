@@ -1,0 +1,13 @@
+{# A menu the AI is creating or changing, or a dish it's replacing. Expects `r` (a MenuRequest). #}
+<div class="import-row"{% if not r.finished %} data-progress-url="{% url 'meals:menu_request_status' r.pk %}"{% endif %}>
+  <a class="import-link" href="{% url 'meals:menu_request' r.pk %}">
+    <span class="import-icon" aria-hidden="true">✨</span>
+    <span>
+      <strong>{% if r.kind == "replace" %}Replacing {{ r.replacing }}{% elif r.kind == "change" %}Changing the menu{% else %}New menu{% endif %}{% if r.kind != "replace" %} · week of {{ r.week|date:"j M" }}{% endif %}</strong>
+      <span class="small {% if r.status == 'done' %}ready{% elif r.status == 'failed' %}warn{% else %}muted{% endif %}">
+        {% if r.status == "done" %}Ready ›{% elif r.status == "failed" %}Didn't work – open to try again{% else %}Working on it…{% endif %}
+      </span>
+      <span class="small muted">{% if r.created_by %}{{ r.created_by.get_short_name }} · {% endif %}{{ r.created_at|date:"D j M, H:i" }}</span>
+    </span>
+  </a>
+</div>
